@@ -1,0 +1,482 @@
+"""
+predictor.py — Unified prediction interface.
+
+This module ties together the parser, siRNA generator, feature extractor,
+LightGBM models, and modification engine into two high-level workflows:
+
+WORKFLOW 1 — rank_sirnas()
+  Input  : mRNA/gene sequence or file path
+  Output : list of 21-mer siRNA candidates sorted by predicted efficacy (high → low)
+  Steps:
+    1. Parse input sequence
+    2. Generate all (N-20) 21-mer candidates with sliding window
+    3. Extract GBM features for each
+    4. Run through the normal siRNA LightGBM model
+    5. Score 0-100, classify:
+       - Score ≥ 90     : "Very High Efficacy"
+       - Score 80-89    : "High Efficacy"
+       - Score 70-79    : "Moderate Efficacy"
+       - Score < 70     : "Low Efficacy"
+
+WORKFLOW 2 — predict_modified()
+  Input  : one siRNA (sense + antisense strings), modification mode
+  Output : list of cm-siRNA variants sorted by predicted efficacy
+  Steps:
+    1. Generate 1260 cm-siRNAs (single-mod scan) OR user-defined cm-siRNA (MultiModGen)
+    2. Extract features per chosen model (A, B, or C)
+    3. Run through cm-siRNA LightGBM model
+    4. Return sorted list with efficacy scores and delta vs parent
+
+Score normalization:
+  LightGBM output is already on the 0-100 inhibition scale. We simply clip to
+  [0, 100] rather than min-max rescaling per batch.
+"""
+
+import warnings
+warnings.filterwarnings('ignore', message='X does not have valid feature names')
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional, Tuple, Union
+
+import numpy as np
+import joblib
+
+from .parser import load_sequence
+from .sirna_generator import generate_candidates, SiRNACandidate
+from .features import extract_batch_gbm
+from .modification_engine import single_mod_scan, multimod_gen, CmSiRNA
+from .filters import annotate_candidates, toxicity_for_modified
+
+# ─── model paths ──────────────────────────────────────────────────────────────
+
+MODELS_DIR = Path(__file__).parent.parent / "models"
+
+_MODEL_FILES = {
+    "normal": MODELS_DIR / "model_normal.pkl",
+    "A":      MODELS_DIR / "model_a.pkl",
+    "B":      MODELS_DIR / "model_b.pkl",
+    "C":      MODELS_DIR / "model_c.pkl",
+}
+
+_CALIBRATOR_FILES = {
+    "normal": MODELS_DIR / "calibrator_naked.pkl",
+    "cm":     MODELS_DIR / "calibrator_cm.pkl",
+}
+
+_loaded_models      = {}   # lazy-loaded model cache
+_loaded_calibrators = {}   # lazy-loaded calibrator cache
+
+
+def _get_model(key: str):
+    if key not in _loaded_models:
+        path = _MODEL_FILES[key]
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Model file not found: {path}\n"
+                "Run  python models/train_gbm.py  to train and save models first."
+            )
+        loaded = joblib.load(path)
+        # the naked model is saved as {"model": ..., "sources": [...]} so the inference
+        # path can pad the source one-hot with the reference (largest) source's bit set.
+        _loaded_models[key] = loaded
+    return _loaded_models[key]
+
+
+def _n_feat_extra() -> int:
+    """Number of extra features beyond the 152-d base (from mean-file JSON)."""
+    from .features import _MRNA_MEAN_FILE
+    try:
+        import json
+        raw = json.loads(_MRNA_MEAN_FILE.read_text())
+        return len(raw)
+    except Exception:
+        return 0
+
+
+def _predict_naked(X_seq: np.ndarray) -> np.ndarray:
+    """Run the naked model. Pads the source one-hot with the reference source bit set."""
+    bundle = _get_model("normal")
+    if isinstance(bundle, dict):
+        model = bundle["model"]
+        # Strip any extra features beyond the 152-d core (naked model doesn't use them)
+        n_extra = _n_feat_extra()
+        if n_extra > 0 and X_seq.shape[1] == 152 + n_extra:
+            X_seq = X_seq[:, :152]
+        sources = bundle.get("sources", [])
+        # Reference source = first one in the list (Huesken when present — largest set).
+        if sources:
+            src_onehot = np.zeros((X_seq.shape[0], len(sources)), dtype=np.float32)
+            # find Huesken if present; else use the first source
+            ref = next((i for i, s in enumerate(sources) if "Hu" in s), 0)
+            src_onehot[:, ref] = 1.0
+            X = np.concatenate([X_seq, src_onehot], axis=1)
+        else:
+            X = X_seq
+        return model.predict(X)
+    return bundle.predict(X_seq)
+
+
+# ─── score normalization ──────────────────────────────────────────────────────
+
+def _get_calibrator(key: str):
+    """Lazy-load an isotonic calibrator. Returns None if file doesn't exist."""
+    if key not in _loaded_calibrators:
+        path = _CALIBRATOR_FILES.get(key)
+        if path is not None and path.exists():
+            _loaded_calibrators[key] = joblib.load(path)
+        else:
+            _loaded_calibrators[key] = None
+    return _loaded_calibrators[key]
+
+
+def _normalize_scores(raw: np.ndarray, calibrator_key: str = None) -> np.ndarray:
+    """
+    Clip raw scores to 0–100, then optionally apply isotonic calibration
+    to improve absolute score accuracy.
+    """
+    if calibrator_key is not None:
+        cal = _get_calibrator(calibrator_key)
+        if cal is not None:
+            return np.clip(cal.transform(raw), 0.0, 100.0)
+    return np.clip(raw, 0.0, 100.0)
+
+
+def _efficacy_label(score: float) -> str:
+    # Training-data percentiles: P50=48, P75=72, P84=80, P94=90.
+    # Thresholds are calibrated to the prediction distribution (compressed vs labels).
+    if score >= 80:
+        return "Very High"
+    elif score >= 70:
+        return "High"
+    elif score >= 55:
+        return "Moderate"
+    else:
+        return "Low"
+
+
+# ─── result containers ────────────────────────────────────────────────────────
+
+@dataclass
+class RankedSiRNA:
+    rank:          int
+    position:      int      # 0-based start position in mRNA
+    sense:         str
+    antisense:     str
+    efficacy_score: float   # 0–100
+    efficacy_label: str     # Very High / High / Moderate / Low
+    # Safety / functionality annotations
+    toxicity_score: Optional[float] = None    # predicted cell viability % (None = unknown seed)
+    toxicity_label: str = "Unknown"            # Safe / Caution / Toxic / Unknown
+    func_ok:        bool = True
+    func_reason:    str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "rank":              self.rank,
+            "position":          self.position,
+            "sense":             self.sense,
+            "antisense":         self.antisense,
+            "efficacy_score":    round(self.efficacy_score, 2),
+            "efficacy_label":    self.efficacy_label,
+            "toxicity_score":    self.toxicity_score,
+            "toxicity_label":    self.toxicity_label,
+            "func_ok":           self.func_ok,
+            "func_reason":       self.func_reason,
+        }
+
+
+@dataclass
+class RankedCmSiRNA:
+    rank:            int
+    sense:           str
+    antisense:       str
+    mod_symbol:      str
+    mod_position:    int
+    mod_strand:      str
+    efficacy_score:  float   # 0–100
+    delta_score:     float   # efficacy_score − parent score
+    efficacy_label:  str
+    mod_positions:   str = ""    # all positions as comma-separated for multi-mod (e.g. "4,6")
+    # Seed toxicity (canonical-base lookup + modification-aware mitigation flag)
+    toxicity_score:  Optional[float] = None
+    toxicity_label:  str = "Unknown"      # Safe / Caution / Toxic / Mitigated / Unknown
+    toxicity_note:   str = ""             # tooltip explaining a Mitigated flag
+
+    def to_dict(self) -> dict:
+        return {
+            "rank":            self.rank,
+            "sense":           self.sense,
+            "antisense":       self.antisense,
+            "mod_symbol":      self.mod_symbol,
+            "mod_position":    self.mod_position,
+            "mod_strand":      self.mod_strand,
+            "mod_positions":   self.mod_positions or str(self.mod_position),
+            "efficacy_score":  round(self.efficacy_score, 2),
+            "delta_score":     round(self.delta_score, 2),
+            "efficacy_label":  self.efficacy_label,
+            "toxicity_score":  self.toxicity_score,
+            "toxicity_label":  self.toxicity_label,
+            "toxicity_note":   self.toxicity_note,
+        }
+
+
+# ─── Workflow 1: rank unmodified siRNA candidates ─────────────────────────────
+
+def rank_sirnas(
+    source: Union[str, Path],
+    top_n: Optional[int] = None,
+) -> List[RankedSiRNA]:
+    """
+    From an mRNA/gene input, generate and rank all 21-mer siRNA candidates.
+
+    Parameters
+    ----------
+    source : str or Path
+        mRNA sequence, FASTA file path, or inline FASTA text.
+    top_n  : optional int
+        If set, return only the top N candidates.
+
+    Returns
+    -------
+    List[RankedSiRNA] sorted best → worst by efficacy score.
+    """
+    # Step 1: parse
+    seq = load_sequence(source)
+
+    # Step 2: generate candidates
+    candidates: List[SiRNACandidate] = generate_candidates(seq)
+
+    # Step 3: extract features
+    sense_list     = [c.sense     for c in candidates]
+    antisense_list = [c.antisense for c in candidates]
+    X = extract_batch_gbm(sense_list, antisense_list)
+
+    # Step 4: predict (naked model is wrapped to handle the source one-hot)
+    raw_scores = _predict_naked(X)
+    scores = _normalize_scores(raw_scores, calibrator_key="normal")
+
+    # Step 4b: safety + functionality annotations
+    annotations = annotate_candidates(sense_list, antisense_list)
+
+    # Step 5: rank
+    order = np.argsort(scores)[::-1]  # highest first
+    results = []
+    for rank_i, idx in enumerate(order):
+        c = candidates[idx]
+        s = float(scores[idx])
+        a = annotations[idx]
+        results.append(RankedSiRNA(
+            rank=rank_i + 1,
+            position=c.position,
+            sense=c.sense,
+            antisense=c.antisense,
+            efficacy_score=s,
+            efficacy_label=_efficacy_label(s),
+            toxicity_score=a["toxicity_score"],
+            toxicity_label=a["toxicity_label"],
+            func_ok=a["func_ok"],
+            func_reason=a["func_reason"],
+        ))
+
+    if top_n is not None:
+        results = results[:top_n]
+
+    return results
+
+
+# ─── Workflow 1b: rank by modification potential ──────────────────────────────
+
+def _mini_mod_scan(sense: str, antisense: str) -> Tuple[List[str], List[str], List[str], List[str]]:
+    """
+    Quick proxy for modification potential: test the 4 most effective modification
+    symbols (E, D, Q, L) on antisense positions 1-10 — 40 variants per candidate.
+
+    These 4 symbols span different chemistries and consistently rank highest
+    in max modified score across diverse siRNA sequences.
+
+    Returns (mod_senses, mod_antisenses, base_senses, base_antisenses).
+    """
+    from .modification_engine import _apply_mod
+    s_list, a_list, bs_list, ba_list = [], [], [], []
+    for sym in ('E', 'D', 'Q', 'L'):
+        for pos in range(1, 11):
+            mod_a = _apply_mod(antisense, pos, sym)
+            s_list.append(sense)
+            a_list.append(mod_a)
+            bs_list.append(sense)
+            ba_list.append(antisense)
+    return s_list, a_list, bs_list, ba_list
+
+
+def rank_by_naked_score(
+    source: Union[str, Path],
+    top_n: Optional[int] = None,
+) -> List[RankedSiRNA]:
+    """
+    Rank siRNA candidates by their *naked (unmodified) silencing score*.
+
+    This is the baseline efficacy of each siRNA backbone before any chemical
+    modifications are applied. The naked model (PCC=0.55) scores each candidate
+    using sequence-composition features only.
+
+    Parameters
+    ----------
+    source : str or Path
+        mRNA sequence, FASTA file path, or inline FASTA text.
+    top_n  : optional int
+        Number of results to return (default: all).
+
+    Returns
+    -------
+    List[RankedSiRNA] sorted by naked score (best → worst).
+    """
+    seq = load_sequence(source)
+    candidates: List[SiRNACandidate] = generate_candidates(seq)
+
+    if len(candidates) == 0:
+        return []
+
+    sense_list = [c.sense for c in candidates]
+    antisense_list = [c.antisense for c in candidates]
+    X_seq = extract_batch_gbm(sense_list, antisense_list)
+    raw = _predict_naked(X_seq)
+    scores = _normalize_scores(raw, calibrator_key="normal")
+    order = np.argsort(scores)[::-1]
+
+    annotations = annotate_candidates(sense_list, antisense_list)
+
+    results = []
+    for rank_i, pos in enumerate(order):
+        c = candidates[pos]
+        s = float(scores[pos])
+        a = annotations[pos]
+        results.append(RankedSiRNA(
+            rank=rank_i + 1,
+            position=c.position,
+            sense=c.sense,
+            antisense=c.antisense,
+            efficacy_score=s,
+            efficacy_label=_efficacy_label(s),
+            toxicity_score=a["toxicity_score"],
+            toxicity_label=a["toxicity_label"],
+            func_ok=a["func_ok"],
+            func_reason=a["func_reason"],
+        ))
+
+    if top_n is not None:
+        results = results[:top_n]
+
+    return results
+
+
+# ─── Workflow 2: predict modified siRNA efficacy ──────────────────────────────
+
+def predict_modified(
+    sense: str,
+    antisense: str,
+    mode: str = "scan",
+    model_key: str = "A",
+    full_scan: bool = False,
+    # MultiModGen parameters (used when mode="multimod")
+    sense_mods: str = "",
+    sense_positions: str = "",
+    antisense_mods: str = "",
+    antisense_positions: str = "",
+) -> List[RankedCmSiRNA]:
+    """
+    Predict efficacy of chemically modified variants of a given siRNA.
+
+    Parameters
+    ----------
+    sense / antisense : the 21-nt parent siRNA strands.
+    mode              : "scan"     → generate single-mod variants
+                        "multimod" → apply user-specified multiple modifications
+    model_key         : "A" (default), "B", or "C"
+    full_scan         : True  → generate all 1260 single-mod variants (30 mods × 21 pos × 2 strands)
+                        False → generate 40-variant mini-scan (E/D/Q/L on antisense pos 1-10)
+    sense_mods / sense_positions            : MultiModGen input for sense strand
+    antisense_mods / antisense_positions    : MultiModGen input for antisense strand
+
+    Returns
+    -------
+    List[RankedCmSiRNA] sorted best → worst.
+    """
+    # Step 1: get naked model parent score (matches what Rank tab shows)
+    X_parent = extract_batch_gbm([sense], [antisense])
+    raw_naked = _predict_naked(X_parent)
+    parent_score = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
+    parent_raw = _get_model(model_key).predict(X_parent)[0]  # CM raw for consistent normalization
+
+    # Step 2: generate cm-siRNA variants
+    if mode == "scan":
+        if full_scan:
+            variants: List[CmSiRNA] = single_mod_scan(sense, antisense)
+        else:
+            # 40-variant mini-scan: E/D/Q/L on antisense positions 1-10
+            s_list, a_list, bs_list, ba_list = _mini_mod_scan(sense, antisense)
+            from .modification_engine import CmSiRNA
+            variants = []
+            for i in range(len(s_list)):
+                variants.append(CmSiRNA(
+                    sense=s_list[i], antisense=a_list[i],
+                    mod_symbol='E' if i < 10 else 'D' if i < 20 else 'Q' if i < 30 else 'L',
+                    mod_position=(i % 10) + 1,
+                    mod_strand='antisense',
+                    parent_sense=bs_list[i], parent_antisense=ba_list[i],
+                ))
+    elif mode == "multimod":
+        variants = [multimod_gen(
+            sense, antisense,
+            sense_mods=sense_mods,
+            sense_positions=sense_positions,
+            antisense_mods=antisense_mods,
+            antisense_positions=antisense_positions,
+        )]
+    else:
+        raise ValueError(f"mode must be 'scan' or 'multimod', got '{mode}'")
+
+    if not variants:
+        return []
+
+    # Step 3: extract features (supply base = parent strands so the model sees both the
+    # underlying sequence and the modification overlay, matching how it was trained)
+    s_list = [v.sense     for v in variants]
+    a_list = [v.antisense for v in variants]
+    bs_list = [v.parent_sense     for v in variants]
+    ba_list = [v.parent_antisense for v in variants]
+    X = extract_batch_gbm(s_list, a_list,
+                          base_sense_list=bs_list, base_antisense_list=ba_list)
+
+    # Step 4: predict (parent_raw is kept in the batch so variant scores
+    # share the same isotonic calibration curve; we discard the calibrated
+    # parent score since we use the naked model score for display & deltas)
+    model = _get_model(model_key)
+    raw_all = np.append(model.predict(X), parent_raw)
+    scores_all = _normalize_scores(raw_all, calibrator_key="cm")
+    scores = scores_all[:-1]
+
+    # Step 5: rank
+    order = np.argsort(scores)[::-1]
+    results = []
+    for rank_i, idx in enumerate(order):
+        v = variants[idx]
+        s = float(scores[idx])
+        # Modification-aware seed toxicity: canonical-base lookup + rescue-mod check
+        viab, tox_label, tox_note = toxicity_for_modified(v.antisense, v.parent_antisense)
+        results.append(RankedCmSiRNA(
+            rank=rank_i + 1,
+            sense=v.sense,
+            antisense=v.antisense,
+            mod_symbol=v.mod_symbol,
+            mod_position=v.mod_position,
+            mod_strand=v.mod_strand,
+            mod_positions=v.mod_positions,
+            efficacy_score=s,
+            delta_score=round(s - parent_score, 2),
+            efficacy_label=_efficacy_label(s),
+            toxicity_score=None if viab is None else round(viab, 1),
+            toxicity_label=tox_label,
+            toxicity_note=tox_note,
+        ))
+
+    return {"results": results, "parent_score": round(parent_score, 2)}

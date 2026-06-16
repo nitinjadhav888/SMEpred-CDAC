@@ -1,0 +1,26 @@
+{
+  "date": "2026-06-11T15:11:23.278952",
+  "all_source_pcc": 0.4424,
+  "all_source_spearman": 0.4519,
+  "all_source_mae": 14.45,
+  "loso": {
+    "oligoformer_Hu": {
+      "pcc": 0.2913,
+      "n": 2361
+    },
+    "oligoformer_Mix": {
+      "pcc": 0.2439,
+      "n": 462
+    },
+    "oligoformer_Taka": {
+      "pcc": 0.4755,
+      "n": 699
+    },
+    "smepred_existing": {
+      "pcc": 0.1144,
+      "n": 538
+    }
+  },
+  "feature_dim": 156,
+  "best_iteration": 81
+}

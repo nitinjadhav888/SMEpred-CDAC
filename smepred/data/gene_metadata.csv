@@ -1,0 +1,14 @@
+target_gene,accession,mrna_length,mrna_gc_pct,gene_length_bp,chromosome,strand,biotype
+AGT,NM_001382817.3,2148,54.61,54800,1,-1,protein_coding
+ANGPTL3,NM_013913.4,1609,40.71,15203,4,1,protein_coding
+APP,NM_201414.3,3358,48.09,290593,21,-1,protein_coding
+CTNNB1,NM_001330729.2,3488,45.64,65355,3,1,protein_coding
+HSD17B13,NM_001136230.3,2260,38.89,20995,4,-1,protein_coding
+INHBE,NM_031479.5,2460,53.82,6957,12,1,protein_coding
+LPA,NM_005577.4,6431,51.87,132794,6,-1,protein_coding
+MAPT,NM_001123066.3,6816,57.35,134056,17,1,protein_coding
+MARC1,NM_001290273.1,2148,52.0,0,,0,
+MSTN,NM_010834.3,2705,38.08,6441,1,1,protein_coding
+PCSK9,NM_174936.4,3637,62.58,25407,1,1,protein_coding
+PLN,NM_001141927.1,2480,39.11,23890,10,1,protein_coding
+PNPLA3,NM_025225.3,2753,53.54,40727,22,1,protein_coding

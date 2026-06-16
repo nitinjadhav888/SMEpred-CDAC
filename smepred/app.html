@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMEpred — siRNA Efficacy Predictor</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3250;
+    --accent: #6c8aff;
+    --accent2: #a78bfa;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; min-height: 100vh; }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 32px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  header svg { flex-shrink: 0; }
+  header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
+  header p { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+  .badge {
+    margin-left: auto;
+    background: #1e3a2f;
+    color: var(--green);
+    border: 1px solid #2d5a45;
+    font-size: 0.7rem;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .badge::before { content: ''; width: 6px; height: 6px; background: var(--green); border-radius: 50%; display: inline-block; }
+
+  nav {
+    display: flex;
+    gap: 2px;
+    padding: 20px 32px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  nav button {
+    background: none; border: none; color: var(--muted);
+    padding: 10px 20px; font-size: 0.875rem; cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  nav button:hover { color: var(--text); background: var(--surface2); }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--surface); }
+  .upload-btn:hover { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+
+  main { padding: 28px 32px; max-width: 960px; }
+
+  .tab { display: none; }
+  .tab.active { display: block; }
+
+  label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+  textarea, input, select {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 10px 14px;
+    font-size: 0.875rem;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  textarea:focus, input:focus, select:focus { border-color: var(--accent); }
+  textarea { resize: vertical; }
+
+  .row { display: grid; gap: 16px; margin-bottom: 16px; }
+  .row.cols2 { grid-template-columns: 1fr 1fr; }
+  .row.cols3 { grid-template-columns: 1fr 1fr 1fr; }
+
+  .field { margin-bottom: 16px; }
+
+  button.run {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 11px 28px;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  button.run:hover { opacity: 0.85; }
+  button.run:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    display: none;
+  }
+  button.run.loading .spinner { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .results-box {
+    margin-top: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .results-header {
+    padding: 12px 18px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--muted);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .results-header strong { color: var(--text); }
+  .table-wrap { overflow-x: auto; max-height: 480px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  thead th {
+    background: var(--surface2);
+    padding: 10px 14px;
+    text-align: left;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    position: sticky; top: 0; z-index: 1;
+    white-space: nowrap;
+  }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+  tbody tr:hover { background: var(--surface2); }
+  tbody td { padding: 9px 14px; font-family: 'JetBrains Mono', monospace; }
+
+  .score-bar {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .bar-bg {
+    height: 6px; background: var(--border); border-radius: 3px;
+    flex: 1; min-width: 60px;
+  }
+  .bar-fill { height: 100%; border-radius: 3px; }
+
+  .badge-eff {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .eff-vh { background: #1a3a2b; color: #34d399; }
+  .eff-h  { background: #1e3a1a; color: #86efac; }
+  .eff-m  { background: #3a2e1a; color: #fbbf24; }
+  .eff-l  { background: #3a1f1f; color: #f87171; }
+
+  /* Toxicity badges */
+  .tox-safe    { background: #16261f; color: #34d399; }
+  .tox-caution { background: #3a2e1a; color: #fbbf24; }
+  .tox-toxic   { background: #3a1f1f; color: #f87171; }
+  .tox-mitigated { background: #1a2b3a; color: #6c8aff; border: 1px solid #4a6aff; }
+  .tox-unknown { background: var(--surface2); color: var(--muted); }
+  .func-bad    { color: #f87171; font-size: 0.7rem; }
+  .func-ok     { color: #34d399; font-size: 0.85rem; }
+
+  .use-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.12s;
+  }
+  .use-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .info-box {
+    margin-top: 20px;
+    background: #16261f;
+    border: 1px solid #2d5a45;
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    color: var(--green);
+    font-size: 0.875rem;
+  }
+
+  .error-box {
+    margin-top: 20px;
+    background: #3a1f1f;
+    border: 1px solid #7f3535;
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    color: #f87171;
+    font-size: 0.875rem;
+  }
+
+  .single-result-card {
+    margin-top: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+  }
+  .single-result-card .big-score {
+    font-size: 3rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .single-result-card .score-label {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 20px; }
+  .meta-item { background: var(--surface2); border-radius: 8px; padding: 12px; }
+  .meta-item .key { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
+  .meta-item .val { font-size: 0.875rem; font-family: monospace; word-break: break-all; }
+
+  .hint { font-size: 0.75rem; color: var(--muted); margin-top: 6px; }
+
+  .mod-legend {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;
+  }
+  .mod-tag {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 0.72rem;
+    font-family: monospace;
+    cursor: default;
+    transition: background 0.1s;
+    user-select: none;
+  }
+  .mod-tag:hover { background: var(--surface); border-color: var(--accent); }
+  .mod-tag.backbone { border-left: 3px solid var(--accent); }
+  .mod-tag.sugar     { border-left: 3px solid var(--accent2); }
+  .mod-tag.base      { border-left: 3px solid var(--green); }
+  .mod-tag.terminus  { border-left: 3px solid var(--yellow); }
+  .mod-tag.conjugate { border-left: 3px solid var(--red); }
+
+  .section-title {
+    font-size: 1rem; font-weight: 700; margin-bottom: 4px;
+  }
+  .section-sub {
+    font-size: 0.8rem; color: var(--muted); margin-bottom: 20px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+    <rect width="32" height="32" rx="8" fill="#1e2a4a"/>
+    <path d="M8 24 L12 8 L16 18 L20 10 L24 24" stroke="#6c8aff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <circle cx="16" cy="18" r="2" fill="#a78bfa"/>
+  </svg>
+  <div>
+    <h1>SMEpred</h1>
+    <p>siRNA efficacy prediction &amp; chemical modification workbench</p>
+  </div>
+  <span class="badge" id="api-badge">API Online</span>
+</header>
+
+<nav>
+  <button class="active" onclick="switchTab('rank', this)">🔬 Rank siRNAs</button>
+  <button onclick="switchTab('singlemod', this)">⚗️ Single-Mod Scan</button>
+  <button onclick="switchTab('multimod', this)">🧬 Multi-Mod Design</button>
+  <button onclick="switchTab('mods', this)">📖 Modifications</button>
+</nav>
+
+<main>
+
+<!-- ─── RANK TAB ─────────────────────────────────────────────────────────── -->
+<div id="tab-rank" class="tab active">
+  <div class="section-title">Rank siRNA Candidates</div>
+  <div class="section-sub">Generate and score all 21-mer siRNA candidates from an mRNA or gene sequence. Each row also shows seed toxicity &amp; functional checks.</div>
+
+  <div class="field">
+    <label>mRNA / Gene Sequence</label>
+    <textarea id="rank-seq" rows="5" placeholder="Paste plain sequence (e.g. AUGCAUG...) or FASTA format"></textarea>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <label for="rank-file" class="upload-btn" style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px dashed var(--border);border-radius:var(--radius);padding:8px 16px;cursor:pointer;font-size:0.8rem;color:var(--muted);transition:all 0.15s">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Upload FASTA / plain text file
+        <input id="rank-file" type="file" accept=".fa,.fasta,.txt,.fsa,.fna" style="display:none" onchange="loadRankFile(event)">
+      </label>
+      <span id="rank-filename" style="font-size:0.78rem;color:var(--green)"></span>
+    </div>
+  </div>
+  <div class="row cols2">
+    <div class="field" style="max-width:220px">
+      <label>Top N results (0 = all)</label>
+      <input id="rank-topn" type="number" value="20" min="0">
+    </div>
+
+  </div>
+  <button class="run" id="btn-rank" onclick="runRank()">
+    <span class="spinner"></span> Run Prediction
+  </button>
+  <div id="rank-error"></div>
+  <div id="rank-results"></div>
+</div>
+
+<!-- ─── SINGLE-MOD TAB ──────────────────────────────────────────────────── -->
+<div id="tab-singlemod" class="tab">
+  <div class="section-title">Single-Modification Scan</div>
+  <div class="section-sub">Scan all 1260 single-mod variants (30 mods × 21 pos × 2 strands) for one or more siRNAs.</div>
+
+  <div class="row cols2">
+    <div class="field">
+      <label>Sense strand (21-nt)</label>
+      <input id="sm-sense" type="text" placeholder="e.g. GCAGUCGUUUAGUGAAUAUTT" maxlength="25">
+    </div>
+    <div class="field">
+      <label>Antisense strand (21-nt)</label>
+      <input id="sm-antisense" type="text" placeholder="e.g. AUAUUCACUAAACGACUGCTT" maxlength="25">
+    </div>
+  </div>
+  <div class="row cols2">
+    <div class="field">
+      <label>Prediction Model</label>
+      <select id="sm-model">
+        <option value="A">LightGBM (cm-siRNA)</option>
+      </select>
+      <div class="hint">Gradient-boosted trees · trained on 25,763 modified siRNAs · PCC 0.68</div>
+    </div>
+    <div class="field">
+      <label>Top N variants to display</label>
+      <input id="sm-topn" type="number" value="50" min="1">
+    </div>
+  </div>
+  <div style="margin-bottom:16px">
+    <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--text);text-transform:none;letter-spacing:0;font-weight:400;padding:10px 14px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+      <input id="sm-full-scan" type="checkbox" style="width:auto;margin:0">
+      <strong>Full scan (all 1260 variants)</strong>
+      <span style="color:var(--muted);font-size:0.78rem"> — when checked, tests all 30 mod types × 21 positions × 2 strands (~3s). Unchecked = 40-variant mini-scan (~0.1s).</span>
+    </label>
+  </div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">
+    <button class="run" id="btn-sm" onclick="runSingleMod()">
+      <span class="spinner"></span> Scan Variants
+    </button>
+    <button class="run" id="btn-auto-mms" onclick="runAutoMultiModScan()" style="background:linear-gradient(135deg,var(--accent),#a855f7)">
+      <span class="spinner"></span> Auto Multi-Mod Scan
+    </button>
+  </div>
+  <div id="sm-error"></div>
+  <div id="sm-results"></div>
+</div>
+
+<!-- ─── MULTI-MOD TAB ───────────────────────────────────────────────────── -->
+<div id="tab-multimod" class="tab">
+  <div class="section-title">Multi-Modification Design</div>
+  <div class="section-sub">Predict efficacy for a custom cm-siRNA with specific modifications at specific positions.</div>
+
+  <div class="row cols2">
+    <div class="field">
+      <label>Sense strand (21-nt)</label>
+      <input id="mm-sense" type="text" placeholder="GCAGUCGUUUAGUGAAUAUTT">
+    </div>
+    <div class="field">
+      <label>Antisense strand (21-nt)</label>
+      <input id="mm-antisense" type="text" placeholder="AUAUUCACUAAACGACUGCTT">
+    </div>
+  </div>
+  <div class="row cols2">
+    <div class="field">
+      <label>Sense modifications</label>
+      <input id="mm-smods" type="text" placeholder="e.g. F,,M  (comma-sep, blank = no mod)">
+      <div class="hint">One symbol per position group. Leave blank to skip.</div>
+    </div>
+    <div class="field">
+      <label>Sense positions</label>
+      <input id="mm-spos" type="text" placeholder="e.g. 2,5,,10">
+    </div>
+  </div>
+  <div class="row cols2">
+    <div class="field">
+      <label>Antisense modifications</label>
+      <input id="mm-amods" type="text" placeholder="">
+    </div>
+    <div class="field">
+      <label>Antisense positions</label>
+      <input id="mm-apos" type="text" placeholder="">
+    </div>
+  </div>
+  <div class="field" style="max-width:260px">
+    <label>Prediction Model</label>
+    <select id="mm-model">
+      <option value="A">LightGBM (cm-siRNA)</option>
+    </select>
+    <div class="hint">Gradient-boosted trees · 25,763 training rows</div>
+  </div>
+  <button class="run" id="btn-mm" onclick="runMultiMod()">
+    <span class="spinner"></span> Predict Efficacy
+  </button>
+  <div id="mm-error"></div>
+  <div id="mm-results"></div>
+</div>
+
+<!-- ─── MODS TAB ─────────────────────────────────────────────────────────── -->
+<div id="tab-mods" class="tab">
+  <div class="section-title">Chemical Modifications Reference</div>
+  <div class="section-sub">All 30 supported modification symbols. Click a tag to copy its symbol.</div>
+  <div id="mods-content"><p style="color:var(--muted);font-size:0.875rem">Loading…</p></div>
+</div>
+
+</main>
+
+<script>
+const API = window.location.origin && window.location.origin !== 'null'
+  ? window.location.origin
+  : 'http://localhost:8000';
+
+// ─── Tab switching ────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+  if (name === 'mods') loadMods();
+}
+
+// ─── Funnel: send a ranked siRNA into the modification tabs ─────────────────────
+// This is the workflow glue: Rank finds your best naked siRNA, then one click carries
+// that exact sense/antisense into the Single-Mod and Multi-Mod tabs so you never have
+// to re-type the strands.
+function useCandidate(sense, antisense) {
+  ['sm-sense', 'mm-sense'].forEach(id => document.getElementById(id).value = sense);
+  ['sm-antisense', 'mm-antisense'].forEach(id => document.getElementById(id).value = antisense);
+  // jump to the Single-Mod tab and highlight that it's ready
+  const smTabBtn = document.querySelectorAll('nav button')[1];
+  switchTab('singlemod', smTabBtn);
+  const banner = document.getElementById('sm-error');
+  banner.innerHTML = `<div class="info-box">✓ Loaded siRNA from ranking. Click <strong>Scan Variants</strong> to find the best modification — or switch to Multi-Mod Design.</div>`;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function setLoading(btnId, on) {
+  const btn = document.getElementById(btnId);
+  btn.disabled = on;
+  btn.classList.toggle('loading', on);
+}
+
+function showError(elId, msg) {
+  document.getElementById(elId).innerHTML =
+    msg ? `<div class="error-box">⚠ ${msg}</div>` : '';
+}
+
+function effBadge(label) {
+  const cls = { 'Very High': 'eff-vh', 'High': 'eff-h', 'Moderate': 'eff-m', 'Low': 'eff-l' };
+  const c = cls[label] || 'eff-l';
+  return `<span class="badge-eff ${c}">${label}</span>`;
+}
+
+// Seed toxicity badge (cell viability %)
+function toxBadge(score, label) {
+  const cls = { 'Safe': 'tox-safe', 'Caution': 'tox-caution', 'Toxic': 'tox-toxic', 'Unknown': 'tox-unknown' };
+  const c = cls[label] || 'tox-unknown';
+  const tip = score == null
+    ? 'Seed not in toxicity table'
+    : `Predicted cell viability: ${score}%  (higher = safer)`;
+  const txt = score == null ? label : `${label} · ${score}%`;
+  return `<span class="badge-eff ${c}" title="${tip}">${txt}</span>`;
+}
+
+function funcCell(ok, reason) {
+  return ok
+    ? '<span class="func-ok" title="Passes GC/run/palindrome checks">✓</span>'
+    : `<span class="func-bad" title="${reason}">✗ ${reason}</span>`;
+}
+
+function scoreColor(s) {
+  if (s >= 90) return '#34d399';
+  if (s >= 80) return '#86efac';
+  if (s >= 70) return '#fbbf24';
+  return '#f87171';
+}
+
+function scoreBar(score) {
+  const pct = Math.min(100, Math.max(0, score));
+  return `<div class="score-bar">
+    <span style="min-width:42px;color:${scoreColor(score)};font-weight:700">${score.toFixed(1)}</span>
+    <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${scoreColor(score)}"></div></div>
+  </div>`;
+}
+
+function scoreBarSmall(score) {
+  const pct = Math.min(100, Math.max(0, score));
+  return `<div style="display:inline-flex;align-items:center;gap:6px">
+    <span style="color:${scoreColor(score)};font-weight:700">${score.toFixed(1)}</span>
+    <div style="width:60px;height:6px;background:var(--border);border-radius:4px;overflow:hidden">
+      <div style="width:${pct}%;height:100%;background:${scoreColor(score)};border-radius:4px"></div>
+    </div>
+  </div>`;
+}
+
+// ─── RANK ─────────────────────────────────────────────────────────────────────
+function loadRankFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  document.getElementById('rank-filename').textContent = `📄 ${file.name}`;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    document.getElementById('rank-seq').value = e.target.result;
+  };
+  reader.readAsText(file);
+  event.target.value = ''; // allow re-upload of same file
+}
+
+async function runRank() {
+  const seq = document.getElementById('rank-seq').value.trim();
+  if (!seq) return showError('rank-error', 'Please enter a sequence.');
+  showError('rank-error', '');
+  document.getElementById('rank-results').innerHTML = '';
+  setLoading('btn-rank', true);
+
+  try {
+    const res = await fetch(`${API}/rank`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sequence: seq,
+        top_n: parseInt(document.getElementById('rank-topn').value) || 20,
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Request failed');
+    renderRankResults(data);
+  } catch(e) {
+    showError('rank-error', e.message);
+  } finally {
+    setLoading('btn-rank', false);
+  }
+}
+
+function renderRankResults(data) {
+  if (!data.results?.length) {
+    document.getElementById('rank-results').innerHTML = '<div class="error-box">No candidates found.</div>';
+    return;
+  }
+  const rows = data.results.map((r, i) => {
+    const s = (r.sense ?? r.sequence ?? '').replace(/'/g, "\\'");
+    const a = (r.antisense ?? '').replace(/'/g, "\\'");
+    return `
+    <tr>
+      <td style="color:var(--muted)">${r.rank ?? i+1}</td>
+      <td>${r.position ?? '—'}</td>
+      <td style="letter-spacing:0.05em">${r.sense ?? r.sequence ?? '—'}</td>
+      <td style="letter-spacing:0.05em">${r.antisense ?? '—'}</td>
+      <td>${scoreBar(r.efficacy_score ?? r.score ?? 0)}</td>
+      <td>${effBadge(r.efficacy_label ?? r.label ?? '—')}</td>
+      <td>${toxBadge(r.toxicity_score, r.toxicity_label ?? 'Unknown')}</td>
+      <td>${funcCell(r.func_ok !== false, r.func_reason ?? '')}</td>
+      <td><button class="use-btn" onclick="useCandidate('${s}','${a}')" title="Send this siRNA to the modification tabs">⚗️ Modify →</button></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('rank-results').innerHTML = `
+    <div class="results-box">
+      <div class="results-header">
+        <div>Showing <strong>${data.results.length}</strong> of <strong>${data.total_candidates}</strong> candidates (by naked baseline score)</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Position</th><th>Sense (5'→3')</th><th>Antisense (5'→3')</th>
+            <th title="Naked (unmodified) siRNA efficacy score — same as Parent Baseline in Single-Mod tab">LightGBM</th>
+            <th>Label</th>
+            <th title="Seed toxicity">Seed Tox</th>
+            <th title="GC/run/palindrome checks">Func</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ─── SINGLE-MOD ──────────────────────────────────────────────────────────────
+async function runSingleMod() {
+  const sense = document.getElementById('sm-sense').value.trim().toUpperCase();
+  const antisense = document.getElementById('sm-antisense').value.trim().toUpperCase();
+  if (!sense || !antisense) return showError('sm-error', 'Both strands are required.');
+  showError('sm-error', '');
+  document.getElementById('sm-results').innerHTML = '';
+  setLoading('btn-sm', true);
+
+  const fullScan = document.getElementById('sm-full-scan').checked;
+  try {
+    const res = await fetch(`${API}/single-mod`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sense, antisense,
+        model: document.getElementById('sm-model').value,
+        top_n: parseInt(document.getElementById('sm-topn').value) || 50,
+        full_scan: fullScan,
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Request failed');
+    renderSingleModResults(data);
+  } catch(e) {
+    showError('sm-error', e.message);
+  } finally {
+    setLoading('btn-sm', false);
+  }
+}
+
+// Auto Multi-Mod Scan — beam search from Single-Mod to Multi-Mod tab
+async function runAutoMultiModScan() {
+  const sense = document.getElementById('sm-sense').value.trim().toUpperCase();
+  const antisense = document.getElementById('sm-antisense').value.trim().toUpperCase();
+  if (!sense || !antisense) return showError('sm-error', 'Both strands are required.');
+
+  const fullScan = document.getElementById('sm-full-scan').checked;
+  const model = document.getElementById('sm-model').value;
+  showError('sm-error', '');
+  setLoading('btn-auto-mms', true);
+
+  try {
+    const res = await fetch(`${API}/multi-mod-scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sense, antisense, model, max_mods: 2, beam_width: 20, full_scan: fullScan })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Request failed');
+
+    // Switch to Multi-Mod tab
+    const mmTabBtn = document.querySelectorAll('nav button')[2];
+    switchTab('multimod', mmTabBtn);
+
+    // Pre-fill the Multi-Mod tab with parent strands
+    document.getElementById('mm-sense').value = sense;
+    document.getElementById('mm-antisense').value = antisense;
+
+    // Render auto-scan results in Multi-Mod tab
+    renderAutoMultiModResults(data);
+    showError('mm-error', `<div class="info-box">✓ Auto Multi-Mod Scan complete. <strong>${data.total_variants}</strong> candidates found. Top delta: <span style="color:var(--accent)">+${data.results[0]?.delta_score?.toFixed(2) || '—'}</span></div>`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch(e) {
+    showError('sm-error', e.message);
+  } finally {
+    setLoading('btn-auto-mms', false);
+  }
+}
+
+// Toxicity badge for modified candidates — includes the new "Mitigated" state
+function modToxBadge(score, label, note) {
+  const cls = {
+    'Safe': 'tox-safe', 'Caution': 'tox-caution', 'Toxic': 'tox-toxic',
+    'Mitigated': 'tox-mitigated', 'Unknown': 'tox-unknown'
+  };
+  const c = cls[label] || 'tox-unknown';
+  const tipParts = [];
+  if (score != null) tipParts.push(`Canonical-seed viability: ${score}%`);
+  if (note) tipParts.push(note);
+  if (!tipParts.length) tipParts.push('Seed not in toxicity table');
+  const tip = tipParts.join(' · ');
+  const txt = label === 'Mitigated' ? `Mitigated · ${score}%` :
+              (score == null ? label : `${label} · ${score}%`);
+  return `<span class="badge-eff ${c}" title="${tip.replace(/"/g,'&quot;')}">${txt}</span>`;
+}
+
+// Compact per-variant tox cell — only highlights the CHANGE vs parent.
+// Why: the parent's canonical seed is shared by every variant (a 2'-OMe at one
+// position doesn't change the underlying base), so the % would be identical on
+// every row. We show the parent baseline once at the top and per-row show:
+//   "Mitigated"  (blue, with rescue mod tooltip)  — rescue mod sits in pos 2-7
+//   "Same"       (muted)                          — no change vs parent label
+function modToxDeltaCell(varScore, varLabel, varNote, parentLabel) {
+  if (varLabel === 'Mitigated') {
+    return `<span class="badge-eff tox-mitigated" title="${(varNote||'Seed rescued').replace(/"/g,'&quot;')}">Mitigated</span>`;
+  }
+  // Unchanged from parent → "Same"
+  return `<span style="color:var(--muted);font-size:0.78rem" title="Same seed as parent — modification outside the seed region (pos 2–7)">Same</span>`;
+}
+
+function renderSingleModResults(data) {
+  if (!data.results?.length) {
+    document.getElementById('sm-results').innerHTML = '<div class="error-box">No variants returned.</div>';
+    return;
+  }
+  const parentTox = data.parent_toxicity || {};
+  const parentLabel = parentTox.label || 'Unknown';
+  const parentViab = parentTox.viability;
+  const parentSeed = parentTox.seed || '—';
+
+  const rows = data.results.map((r, i) => {
+    const delta = r.delta_score;
+    const deltaStr = delta != null
+      ? `<span style="color:${delta >= 0 ? '#34d399' : '#f87171'}">${delta >= 0 ? '+' : ''}${delta.toFixed(2)}</span>`
+      : '—';
+    return `<tr>
+      <td style="color:var(--muted)">${r.rank ?? i+1}</td>
+      <td style="letter-spacing:0.05em">${r.sense ?? '—'}</td>
+      <td style="letter-spacing:0.05em">${r.antisense ?? '—'}</td>
+      <td>${r.mod_strand ?? r.strand ?? '—'}</td>
+      <td>${r.mod_position ?? r.position ?? '—'}</td>
+      <td>${r.mod_symbol ?? r.modification ?? '—'}</td>
+      <td>${scoreBar(r.efficacy_score ?? r.score ?? 0)}</td>
+      <td>${deltaStr}</td>
+      <td>${modToxDeltaCell(r.toxicity_score, r.toxicity_label ?? 'Unknown', r.toxicity_note ?? '', parentLabel)}</td>
+    </tr>`;
+  }).join('');
+
+  // Parent-seed toxicity banner — the canonical seed is shared by every variant,
+  // so we show its baseline once here instead of repeating the same % on every row.
+  const parentBadge = modToxBadge(parentViab, parentLabel, `Parent seed: ${parentSeed}`);
+  const cmParentScore = data.parent_score != null ? data.parent_score : '—';
+  const parentBanner = `
+    <div style="display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border)">
+      <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Parent baseline</span>
+      <span style="font-size:0.9rem;font-weight:700;color:var(--text)">${scoreBarSmall(cmParentScore)}</span>
+      <span style="width:1px;height:20px;background:var(--border)"></span>
+      <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Seed toxicity</span>
+      ${parentBadge}
+      <span style="font-size:0.75rem;color:var(--muted);font-family:monospace">seed (pos 2–7): ${parentSeed}</span>
+      <span style="margin-left:auto;font-size:0.72rem;color:var(--muted)">Each variant inherits this seed; "Mitigated" = rescue mod in pos 2–7.</span>
+    </div>`;
+
+  const scanModeLabel = data.full_scan
+    ? '<span style="color:var(--accent);font-size:0.72rem">full 1260 scan</span>'
+    : '<span style="color:var(--muted);font-size:0.72rem">40-variant mini-scan (E/D/Q/L on antisense)</span>';
+
+  document.getElementById('sm-results').innerHTML = `
+    <div class="results-box">
+      <div class="results-header">
+        <div>Top <strong>${data.results.length}</strong> of <strong>${data.total_variants}</strong> variants — Model <strong>${data.model}</strong> ${scanModeLabel}</div>
+      </div>
+      ${parentBanner}
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Modified Sense</th><th>Modified Antisense</th>
+            <th>Strand</th><th>Pos</th><th>Mod</th><th>Score</th><th>Δ Score</th>
+            <th title="Per-row toxicity change vs parent seed">Tox Δ</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ─── MULTI-MOD ───────────────────────────────────────────────────────────────
+async function runMultiMod() {
+  const sense = document.getElementById('mm-sense').value.trim().toUpperCase();
+  const antisense = document.getElementById('mm-antisense').value.trim().toUpperCase();
+  if (!sense || !antisense) return showError('mm-error', 'Both strands are required.');
+  showError('mm-error', '');
+  document.getElementById('mm-results').innerHTML = '';
+  setLoading('btn-mm', true);
+
+  try {
+    const res = await fetch(`${API}/multi-mod`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sense, antisense,
+        sense_mods:          document.getElementById('mm-smods').value.trim(),
+        sense_positions:     document.getElementById('mm-spos').value.trim(),
+        antisense_mods:      document.getElementById('mm-amods').value.trim(),
+        antisense_positions: document.getElementById('mm-apos').value.trim(),
+        model:               document.getElementById('mm-model').value,
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Request failed');
+    renderMultiModResult(data);
+  } catch(e) {
+    showError('mm-error', e.message);
+  } finally {
+    setLoading('btn-mm', false);
+  }
+}
+
+function renderMultiModResult(data) {
+  const r = data.result;
+  const score = r.efficacy_score ?? r.score ?? 0;
+  const label = r.efficacy_label ?? r.label ?? '—';
+  const parentScore = data.parent_score;
+  const delta = r.delta_score;
+  const tox = modToxBadge(r.toxicity_score, r.toxicity_label ?? 'Unknown', r.toxicity_note ?? '');
+
+  // Hide noisy fields from the meta grid (already shown above as badges)
+  const hidden = new Set(['efficacy_score','score','efficacy_label','label','delta_score','rank',
+                          'toxicity_score','toxicity_label','toxicity_note']);
+  const metas = Object.entries(r)
+    .filter(([k]) => !hidden.has(k))
+    .map(([k, v]) => `<div class="meta-item"><div class="key">${k}</div><div class="val">${v ?? '—'}</div></div>`)
+    .join('');
+
+  const deltaStr = delta != null
+    ? `<span style="color:${delta >= 0 ? '#34d399' : '#f87171'};font-size:1.1rem;font-weight:700">${delta >= 0 ? '+' : ''}${delta.toFixed(2)} vs parent</span>`
+    : '';
+
+  const toxNote = r.toxicity_note
+    ? `<div style="margin-top:6px;font-size:0.78rem;color:var(--accent)">${r.toxicity_note}</div>`
+    : '';
+
+  const parentHtml = parentScore != null
+    ? `<div style="margin-right:24px"><div class="big-score" style="color:var(--muted);font-size:1.5rem">${parentScore.toFixed(1)}</div><div class="score-label">Parent baseline</div></div>`
+    : '';
+
+  document.getElementById('mm-results').innerHTML = `
+    <div class="single-result-card">
+      <div style="display:flex;align-items:flex-end;gap:32px;flex-wrap:wrap">
+        ${parentHtml}
+        <div>
+          <div class="big-score" style="color:${scoreColor(score)}">${score.toFixed(1)}</div>
+          <div class="score-label">Efficacy Score (0–100)</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:6px">
+          <div>${effBadge(label)} &nbsp; ${deltaStr}</div>
+          <div><span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-right:8px">Seed toxicity</span>${tox}</div>
+          ${toxNote}
+        </div>
+      </div>
+      <div class="meta-grid">${metas}</div>
+    </div>`;
+}
+
+// Render Auto Multi-Mod Scan results in Multi-Mod tab (table format like Single-Mod)
+function renderAutoMultiModResults(data) {
+  if (!data.results?.length) {
+    document.getElementById('mm-results').innerHTML = '<div class="error-box">No variants returned.</div>';
+    return;
+  }
+  const parentScore = data.parent_score;
+  const parentBadge = `<div style="display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border);margin-bottom:12px">
+    <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Parent baseline</span>
+    <span style="font-size:0.9rem;font-weight:700;color:var(--text)">${scoreBarSmall(parentScore)}</span>
+    <span style="width:1px;height:20px;background:var(--border)"></span>
+    <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Auto Beam Search</span>
+    <span style="font-size:0.75rem;color:var(--muted);font-family:monospace">Top <strong>${data.results.length}</strong> of <strong>${data.total_variants}</strong> beam candidates — Model <strong>${data.model}</strong></span>
+  </div>`;
+
+  const rows = data.results.map((r, i) => {
+    const delta = r.delta_score;
+    const deltaStr = delta != null
+      ? `<span style="color:${delta >= 0 ? '#34d399' : '#f87171'}">${delta >= 0 ? '+' : ''}${delta.toFixed(2)}</span>`
+      : '—';
+    return `<tr>
+      <td style="color:var(--muted)">${r.rank ?? i+1}</td>
+      <td style="letter-spacing:0.05em">${r.sense}</td>
+      <td style="letter-spacing:0.05em">${r.antisense}</td>
+      <td>${r.mod_strand}</td>
+      <td>${r.mod_symbol}</td>
+      <td>${r.mod_position}</td>
+      <td>${scoreBar(r.efficacy_score ?? 0)}</td>
+      <td>${deltaStr}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('mm-results').innerHTML = `
+    <div class="results-box">
+      <div class="results-header">
+        <div>Top <strong>${data.results.length}</strong> of <strong>${data.total_variants}</strong> beam variants — Model <strong>${data.model}</strong></div>
+      </div>
+      ${parentBadge}
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Modified Sense</th><th>Modified Antisense</th>
+            <th>Strand(s)</th><th>Mod(s)</th><th>Pos</th><th>Score</th><th>Δ Score</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ─── MODS ─────────────────────────────────────────────────────────────────────
+let modsLoaded = false;
+async function loadMods() {
+  if (modsLoaded) return;
+  try {
+    const res = await fetch(`${API}/modifications`);
+    const data = await res.json();
+    const all = [...(data.canonical || []), ...(data.modifications || [])];
+
+    const groups = {};
+    all.forEach(m => { (groups[m.type] = groups[m.type] || []).push(m); });
+
+    const sectionHtml = Object.entries(groups).map(([type, mods]) => `
+      <div style="margin-bottom:20px">
+        <div style="font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">${type}</div>
+        <div class="mod-legend">
+          ${mods.map(m => `
+            <div class="mod-tag ${m.type}" title="${m.name}" onclick="navigator.clipboard.writeText('${m.symbol}');this.style.background='#1e3a2f'">
+              <strong>${m.symbol}</strong> — ${m.name}
+            </div>`).join('')}
+        </div>
+      </div>`).join('');
+
+    document.getElementById('mods-content').innerHTML = sectionHtml;
+    modsLoaded = true;
+  } catch(e) {
+    document.getElementById('mods-content').innerHTML = `<div class="error-box">Failed to load: ${e.message}</div>`;
+  }
+}
+
+// ─── API health check ─────────────────────────────────────────────────────────
+(async () => {
+  try {
+    await fetch(`${API}/`);
+  } catch(e) {
+    const badge = document.getElementById('api-badge');
+    badge.textContent = 'API Offline';
+    badge.style.background = '#3a1f1f';
+    badge.style.color = '#f87171';
+    badge.style.borderColor = '#7f3535';
+    badge.style.removeProperty('--green');
+    badge.style.setProperty('--dot-color', '#f87171');
+    badge.innerHTML = badge.innerHTML.replace('style="', 'style="background:#f87171;');
+  }
+})();
+</script>
+</body>
+</html>

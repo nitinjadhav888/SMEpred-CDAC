@@ -1,0 +1,567 @@
+﻿Pages: 9
+--- PAGE 1 ---
+RNA Biology
+ISSN: 1547-6286 (Print) 1555-8584 (Online) Journal homepage: www.tandfonline.com/journals/krnb20
+SMEpred workbench: A web server for predicting
+eﬃcacy of chemicallymodiﬁed siRNAs
+Showkat Ahmad Dar, Amit Kumar Gupta, Anamika Thakur & Manoj Kumar
+To cite this article: Showkat Ahmad Dar, Amit Kumar Gupta, Anamika Thakur & Manoj Kumar
+(2016) SMEpred workbench: A web server for predicting eﬃcacy of chemicallymodiﬁed siRNAs,
+RNA Biology, 13:11, 1144-1151, DOI: 10.1080/15476286.2016.1229733
+To link to this article:  https://doi.org/10.1080/15476286.2016.1229733
+View supplementary material 
+Published online: 01 Nov 2016.
+Submit your article to this journal 
+Article views: 2029
+View related articles 
+View Crossmark data
+Citing articles: 13 View citing articles 
+Full Terms & Conditions of access and use can be found at
+https://www.tandfonline.com/action/journalInformation?journalCode=krnb20
+--- PAGE 2 ---
+RESEARCH PAPER
+SMEpred workbench: A web server for predicting ef ﬁcacy of chemically
+modi ﬁed siRNAs
+Showkat Ahmad Dar , Amit Kumar Gupta, Anamika Thakur, and Manoj Kumar
+Bioinformatics Center, Institute of Microbial Technology, Council of Scienti ﬁc and Industrial Research, Chandigarh, India
+ARTICLE HISTORY
+Received 29 April 2016
+Revised 13 August 2016Accepted 24 August 2016ABSTRACT
+Chemical modi ﬁcations have been extensively exploited to circumvent shortcomings in therapeutic
+applications of small interfering RNAs (siRNAs). However, experimental designing and testing of these
+siRNAs or chemically modi ﬁed siRNAs (cm-siRNAs) involves enormous resources. Therefore, in-silico
+intervention in designing cm-siRNAs would be of utmost importance. We developed SMEpred workbenchto predict the ef ﬁcacy of normal siRNAs as well as cm-siRNAs using 3031 heterogeneous cm-siRNA
+sequences from siRNAmod database. These include 30 frequently used chemical modi ﬁcations on
+different positions of either siRNA strand. Support Vector Machine (SVM) was employed to developpredictive models utilizing various sequence features namely mono-, di-nucleotide composition, binarypattern and their hybrids. We achieved highest Pearson Correlation Coef ﬁcient (PCC) of 0.80 during 10-
+fold cross validation and similar PCC value in independent validation. We have provided the algorithm in
+the ‘SMEpred ’pipeline to predict the normal siRNAs from the gene or mRNA sequence. For multiple
+modi ﬁcations, we have assembled ‘MultiModGen ’module to design multiple modi ﬁcations and further
+process them to evaluate their predicted ef ﬁcacies. SMEpred webserver will be useful to scienti ﬁc
+community engaged in use of RNAi-based technology as well as for therapeutic development. Web serveris available for public use at following URL address: http://bioinfo.imtech.res.in/manojk/smepred .KEYWORDS
+Chemically modi ﬁed siRNA;
+cm-siRNAs; ef ﬁcacy
+prediction; RNAi; siRNAmodi ﬁcations; siRNA; small
+interfering RNA; webserver
+Introcuction
+Short interfering RNA (siRNA) based mRNA knockdown tech-
+n i q u ei sp r e s e n t l yo n eo ft h es t a n d a r dm e t h o d si nm o l e c u l a rbiology to study gene function.
+1Theoretically, siRNA can target
+any complementary mRNA and lea ds to degradation of latter
+employing RNA interference (RNAi) machinery.2,3This property
+encouraged the idea to use siRNAs as potential next-generation
+class of therapeutics esp ecially against viruses.4Currently many
+siRNA-based therapeutics are already under advancement in var-ious stages of clinical trials.
+5,6However, uses of siRNA molecules
+as therapeutics face some challenges. These include low ef ﬁcacy
+of mRNA inhibition, off targets, immunogenicity, low serum sta-bility against the nucleases, cell speci ﬁc delivery problems, target
+site recognition, access ibility and its cleavage.
+7-9To overcome
+most of these shortcomings, si RNA molecules are engineered by
+introducing chemical modi ﬁcations.9,10
+Natural RNAs comprises of ribonu cleotide-moieties, composed
+of sugar (Ribose), phosphate (pho sphodiester bond) and nitroge-
+nous bases Adenine (A), Guanine (G), Cytosine (C), and Uracil(U).
+11With modi ﬁcations on these constituent molecules, sphere
+of their functionality has been enhanced.8Numerous studies on
+chemical modi ﬁcations directed on siRNAs are reported in the lit-
+erature aimed to improve their therapeutic potential.6Testing dif-
+ferent chemical modi ﬁcations at different positions and their
+combinations on siRNAs are vast. For example to test 30 chemicalmodi ﬁc a t i o n so n2 1 - m e rd o u b l e - s t r a n d e ds i R N As e q u e n c et h e r e
+would be 1260 (30 modi ﬁcations £1time£21 per strand £2
+strands of siRNA) instances. The complexity increases exponen-tially by increasing permutatio ns and combinations of multiple
+modi ﬁcations at various positions w ithin the same siRNA. Experi-
+mentally testing these huge numb er of combinations would involve
+loads of time and cost. Therefore, the development of an algorithmthat can help in selecting th ea p p r o p r i a t ec h e m i c a lm o d i ﬁcations in
+a siRNA is highly desirable.
+There are many bioinformatics repositories for siRNAs or
+related microRNA molecules available like siRecords,
+12
+HuSiDa,13HIVsirDB,14VIRsiRNAdb15miRBase,16VIR-
+miRNA17or naturally occurring modi ﬁed nucleotide database,
+RNAMDB.11Recently we have developed “siRNAMod ”reposi-
+tory of chemically modi ﬁed siRNAs.18Additionally, many web
+servers are existing to predict the ef ﬁcacy of siRNAs e.g.
+siPRED19BIOPREDsi20MysiRNA,21desiRm,22VIRsiR-
+NApred23etc. However, none of these methods predict ef ﬁcacy
+for the chemically modi ﬁed siRNAs (cm-siRNAs). We have
+provided assessment of various siRNA prediction algorithmsand their related information in the comparison section below.For this endeavor, we have developed SMEpred workbenchfrom experimentally validated cm-siRNAs using support vectormachine (SVM) to forecast the modulation of chemical modi ﬁ-
+cations on siRNAs ( Fig. 1 ).
+CONTACT Manoj Kumar manojk@imtech.res.in
+Supplemental data for this article can be accessed on the publisher ’s website.
+© 2016 Taylor & Francis Group, LLCRNA BIOLOGY
+2016, VOL. 13, NO. 11, 1144 –1151
+http://dx.doi.org/10.1080/15476286.2016.1229733
+--- PAGE 3 ---
+Results
+10-fold cross validation
+SMEpred model evaluation done by 10-fold cross validation
+with Hetero-T2728dataset and independent validation data set
+Hetero-V303is presented in Table 1 . The mononucleotide com-
+position (MNC) of sequence shows the best performance viaSVM technique. The composition of siRNA is one of the keycriteria in de ﬁning the ef ﬁcacy of siRNA. During training/testing, we achieved PCC of 0.80 for MNC (mononucleotide
+composition). Dinucleotide composition (DNC) and binary
+(BIN) sequence features did not show signi ﬁcant increase in
+PCC (Pearson correlation coef ﬁcient) value. The hybrid models
+also exhibited varied performance with PCC values rangingfrom 0.30 to 0.77 ( Table 1 ).
+The hybrids models include nucleotide composition of both
+sequences and the BIN of sense strand as well as antisensestrands, which showed PCC of 0.32. Besides, hybrid
+Figure 1. Diagramatic representation of of SMEpred workbench development and its components.
+Table 1. Performance achieved by SMEpred models for 10-fold cross validation and independent validation in terms of Pearson Correlation Coef ﬁcient (PCC) using SVM
+for Hetero-T2728and Hetero-V303datasets.
+S. No. Model Name FeaturePCC (10-fold validation)
+Hetero-T2728PCC (Independent Validation)
+Hetero-V303
+1AMNC Mononucleotide composition (SS and AS sequence) 0.80 0.808
+2 DNC Dinucleotide composition (SS and AS sequence) 0.53 0.48
+3 BIN Binary pattern (SS and AS sequence) 0.33 0.37
+4 MNC CBIN Composition CBinary (SS and AS sequence) 0.32 0.38
+5 MNC CBIN (10-mer
+both sequences)Composition CBinary (10ntds SS and AS sequences both
+50and 30end)0.30 0.38
+6 MNC CBIN (7-mer both
+sequences)Composition CBinary (7 ntds SS and AS sequences both
+50and 30end)0.42 0.39
+7 MNC CBIN-AS (24) Composition CAS binary (24 ntds length) 0.75 0.81
+8 MNC CBIN-AS (seed-8) Composition CAS seed Binary (8 ntds from 50-end) 0.78 0.83
+9 MNC CBIN-AS (seed-10) Composition CAS seed Binary (10 ntds from 50-end) 0.78 0.83
+10 MNC CBIN-AS (mid-5) Composition CAS mid Binary (9 to13 ntds from 50-end) 0.77 0.80
+11BMNCCBIN-AS (seed 13) Composition CAS Binary (13 ntds from 50-end) 0.77 0.86
+12CMNCCBIN-AS (last 8) Composition CAS Binary (last 8 ntds from 30-end) 0.76 0.78
+13 MNC CBIN-AS (8-5-8) Composition CAS Binary (Initial 13 Clast 8 ntds) 0.75 0.81
+14 MNC-BIN-SS (24) Composition CSS binary (only sense sequence 24 ntds) 0.58 0.59
+(S. No. Dserial number; SS Dsense strand; AS DAntisense strand; ntds Dnucleotides; A, B, C are the models ﬁnally used on the webserver).RNA BIOLOGY 1145
+--- PAGE 4 ---
+combinations like MNC with BIN of 7 nucleotides, 10 nucleoti-
+des of sense as well as antisense strand from both 50and 30ends
+were checked. They too did not show increased performance ascompared to MNC. Antisense sequence is more important as itﬁnally bind to the cognate mRNA, so we further analyzed its
+component fragments. These sections include seed region (8
+nucleotides from 5
+0-end) [model MNC CAS (seed-8)], mid
+region (5 nucleotides starting from 9 to 13thposition) [model
+MNC CAS (mid-5)] and the 30end(8 nucleotides from 30-end)
+[model MNC CAS (last 8)] or combination of former 2 (13
+nucleotides from 50end). Their corresponding correlation val-
+ues are provided in Table 1 . We have also tested the same fea-
+tures on the Homo2100dataset (Supplementary Table S1) and
+found the slightly higher correlation as compared to heterodata set with PCC value of 0.86 for MNC Homo-T
+1900. Further
+the hybrid models ranges in correlation with PCC value from
+0.38 to 0.84.
+Independent evaluation
+Independent dataset (Hetero-V303) from the primary data set
+(Hetero-3031) was used to authorize performance of modelsgenerated. Independent dataset consists of similar sequencessimilar to those used in model development but are not used inthe training/testing. We observed that the model based on com-position features of modi ﬁed siRNAs performed well in model
+development and validation ( Table 1 ). For MNC independent
+validation, we achieved a PCC of 0.80 for Hetero-V
+303data set.
+Other models also showed the comparable PCC values forindependent validation. For hybrid model of composition andbinary pattern of seed region (13 nucleotides) and binary pat-tern for last 8 nucleotides, we achieved PCC value of 0.86 and0.78 respectively for independent validation dataset. The scatterplot showing the correlation between the predicted and experi-
+mental ef ﬁcacies of the chemically modi ﬁed siRNAs during
+independent validation is depicted in the Fig. 2 .
+Likewise, Homo independent validation was performed
+using Homo-V
+210data set, which also showed the comparable
+PCC values as that of their training/testing models (Supple-mentary Table S1). Finally, we built a web server based on bestperformance models according to PCC value and biological sig-niﬁcance of the cm-siRNAs.
+Web server components
+We developed the workbench for predicting ef ﬁcacy of cm-siR-
+NAs, with 3 components namely SMEpred, MultiModGen andSiMEPred tool.
+SMEpred
+SMEpred is a support vector machine based method of predict-ing ef ﬁcacy of 21-mer long nucleotide siRNAs. This algorithm
+is actually the pipeline of various modules and requires mRNAor gene sequences in fasta format. In the ﬁrst step, the sequence
+is divided in 21-mer long sequences, followed by predicting
+efﬁcacy of each siRNA with a score. Score of 100, 80 to 90 and
+70 to 80 represents very high ef ﬁcacy, high ef ﬁcacy and moder-
+ate ef ﬁcacy respectively.Further, user can select the siRNA of choice (by clicking)
+from the generated siRNA list, which will be subsequentlychemically modi ﬁed at each position computationally. Each
+Figure 2. Scatter plot of percentage activities between actual and predicted chem-
+ically modi ﬁed siRNA activities from independent validation data set Hetero-V303.
+(A) Model-A; Mononucleotide nucleotide composition (MNC); (B) Model-B; Compo-sition (MNC) and antisense strand binary (5
+0-end 13 nucleotides); (C) Model-C;
+Composition (MNC) and antisense strand binary (30-end 8 nucleotides).1146 S. A. DAR ET AL.
+--- PAGE 5 ---
+single siRNA develops 1260 cm-siRNAs, with one modi ﬁcation
+type on each 21 positions on both siRNA strands. Next the ef ﬁ-
+cacy of these modi ﬁed cm-siRNAs will be predicted based on
+the MNC-model (Model-A). This algorithm also offers its out-put as ef ﬁcacy values ranging form 0 to 100, with 100 as the
+best cm-siRNA and 0 with no effect on silencing the target
+gene. The pictorial representation of SMEpred is displayed inFig. 3 .
+MultiModGen
+MultiModGen module complements the SMEpred component.It assists users to generate cm-siRNA sequences with multiplemodi ﬁcations of same or different nature on either strand of
+siRNA. This module requires format of customized cm-siRNAsequences that can be generated in ﬁrst part. Latter, these cm-
+siRNAs (format) will be analyzed by the MNC-model for theirpredicted ef ﬁcacies and will be reported in the next page. For
+generation of the sequence format, we need to submit siRNA
+sequence, position of modi ﬁcation from 5
+0-end and one-letter
+symbol of the chemical modi ﬁcation as input. Chemical modi-
+ﬁcations with one letter symbol are provided in Supplementary
+Table S2 as well as on the MultiModGen web page.
+For input 3 boxes should be ﬁlled on the MultiModGen web
+page. First the siRNA sequence ( GCAGCACGACUUCUUCAA-
+GUU -CUUGAAGAAGUCGUGCUGCUU ) that user wants to
+modify. In this sequence A, T, G, C, U stand for their universal
+nucleotides representing Adenine, Thymine, Guanine, Cytosineand Uracil respectively. In second and third box, one lettersymbol of chemical modi ﬁcations ( F,T-T ) and their positions
+(2,5,7,10,11,12,13,14,15,16,20,21-20,21 ) needs to be provided
+respectively. For more than one modi ﬁcation e.g., 2 different
+types of modi ﬁcations, their one letter symbol and correspond-
+ing positions provided should be separated with double com-
+mas (,,) in between them. For further clari ﬁcation please see
+Fig. S1. MultiModGen output can also be used as input inSiMEPred tool to predict ef ﬁcacy based on different models as
+described below.
+SiMEPred-tool
+The SiMEPred algorithm predicts the ef ﬁcacy of cm-siRNAs
+based on 3 different models. These models are based on bestperformance and importance of siRNA-features. Models-A isbased on MNC only while model-B and C are based on MNCalong with antisense strand nucleotide position. Model-B con-sists of information related to ﬁrst 13 nucleotides from 5
+0end
+and the last one comprises of last 8 nucleotide positions from
+30end.
+Cm-siRNA sequence format (e.g. GFAGFAFGAFFFFFF-
+FAAGTT -CUUGAAGAAGUCGUGCUGCTT; Sense -Anti-
+sense) as de ﬁned above (MultiModGen) is required as input for
+this section. This format includes siRNA sequence, chemicalmodi ﬁcation and position of modi ﬁcations. An illustrative
+example is displayed in Fig. S2. The output of SiMEPred dis-
+plays columns in result page with serial number, siRNA
+sequence, length and predicted SVM model score of the corre-sponding sequences. The score can be sorted in ascending or
+Figure 3. Pictorial representation of working of SMEpred pipeline. (A) Write or paste the gene or mRNA sequence in the space provided, in fasta format and click s ubmit
+button. (B) Normal siRNAs that are 21-mer long nucleotides are generated from the provided sequence along with their predicted ef ﬁcacy scores. (C) Further select one
+of the siRNA (by clicking on it) and it will redirect to the next page with 1260 cm-siRNA. This page displays cm-siRNA sequence, chemical modi ﬁcation highlighted in the
+red color predicted ef ﬁcacy and value of modulated ef ﬁcacy.RNA BIOLOGY 1147
+--- PAGE 6 ---
+descending order by clicking on the model score option to
+choose the best modi ﬁcation or their combinations.
+Comparison with the existing web servers
+For comparison of the various webservers designing and pre-
+dicting siRNAs we have provided Table 2 . As revealed in table,
+our webserver is the only one that can predict ef ﬁcacy of cm-
+siRNAs as well as normal siRNA. Furthermore our pipeline isfounded on the models with PCC values greater than most ofthese algorithms.
+Web server implementation
+Linux platform (Apache-2.2.17), Perl are functioning at back-
+end and PHP (5.2.14), HTML, JavaScript are employed for
+front-end of SMEpred web server.
+24,25The following URL link
+provides the access to the algorithm web server for user accessi-bility http://bioinfo.imtech.res.in/manojk/smepred . General
+information for web server usage, data used etc. is provided on“HELP ”section on the web server.
+Discussion
+SMEpred is a machine learning based web server to predict the
+efﬁcacy of cm-siRNAs. In this method we tried to employ bio-
+informatics approach to promote the siRNA technology andapplication one step ahead. SMEpred web server offers anadvanced aspect in siRNA therapeutics research involving
+chemical modi ﬁcations. Chemical modi ﬁcations in siRNA play
+a cardinal role in enhancing ef ﬁciency,
+26-28serum stability,29-31
+reducing off-targets9,32etc. These aspects are key to their use as
+therapeutic molecules.
+This web server is distinct from the existing algorithms in
+terms of predicting ef ﬁcacy of cm-siRNAs ( Table 2 ). This char-
+acteristic adds a new domain to the collection of siRNA predic-tion software packages. Theoretically, this web server can
+predict the activity of any number and pattern of 30 modi ﬁca-
+tions (along with 5 canonical nucleotides used in training/test-ing of models) in cm-siRNAs with high accuracy. In this study,we developed composite models and assigned complex nota-
+tions for chemical modi ﬁcations, which is comparatively
+straightforward in case of wild siRNAs.
+Biologically two aspects of the siRNA (as well as cm-siR-
+NAs) are of prime importance. One is the nucleotide composi-tion of either strand, second is the position of the modi ﬁcation
+in general and seed region of antisense in particular.
+33,34
+Directed at these features we have developed our models
+in SMEpred server. Two cm-siRNA datasets were used
+Hetero-T2728(Heterogeneous data set) and Homo-T1900
+(homogenous dataset) for investigation with 10-fold cross vali-dation. Furthermore, Hetero-V
+303and Homo-V210data sets
+were used for their independent validations respectively.Hertero-T
+2728contains dataset with varied experimental condi-
+tions and more number and combinations of chemical modi ﬁ-
+cations. Heterogeneous data set gave robustness to models
+developed as it includes more number of chemical modi ﬁcation
+and varied experimental conditions. For Hetero-T2728dataset
+MNC model performed best among all SVM models. DNC andBIN did not exhibit any increase in PCC value hence performedpoorly. Next, we chose to include the MNC of both the strandsand various BIN features for the development of models.
+23
+These hybrid models using BIN with MNC23incorporated
+information based on the composition as well as position of
+modi ﬁcations ( Table 1 ).
+The hybrid model performance of MNC and BIN patterns
+showed lower values of PCC. For example MNC CBIN (both
+sequences), MNC CBIN (10-mer both sequences and MNC C
+BIN (7-mer both sequences) showed PCC value less than 0.50.Models with MNC and BIN-AS either entire antisensesequence as MNC CBIN-AS (24 sequence length) model 7 of
+Table 1 or antisense variants performed well with PCC value
+greater than 0.75. Furthermore, MNC and BIN of sense strand
+(SS) i.e. MNC CBIN-SS 24; (model 14 of Table 1 ) showed
+PCC value of 0.58. The performance of ﬁnal models used in
+terms of PCC values of our algorithm is equivalent or better toother prediction algorithms of unmodi ﬁed siRNA
+23(Table 2 ).
+With Homo-T1900same pattern in PCC value was seen as
+0.86 for MNC (Supplementary Table S1). This data set alsoexhibited the similar trend in PCC values on different models,
+Table 2. Comparison of the various siRNA prediction methods.
+S. No. Publication PMID Year Technique siRNA data set used siRNA Prediction cm-siRNA Prediction Pearson correlation coef ﬁcient -R
+1 15201190 2004 NA 581 Yes No 0.46
+2 16025102 2005 ANN 2431 Yes No 0.663 17137497 2006 Linear 2431 Yes No 0.674 16870995 2006 Linear 526 Yes No 0.555 16472402 2006 NA 653 Yes No 0.55
+6 17553157 2007 SVM 2431 Yes No 0.78
+7 17884914 2007 Linear 2431 Yes No 0.728 17259216 2007 Linear 702 Yes No 0.779 17644215 2007 Rule, SVM, RFR 3589 Yes No 0.8510 22102913 2011 SVM 2431 Yes No 0.7711 23118925 2012 Linear 2182 Yes No 0.6712 23241392 2013 SVM 2431 Yes No 0.8
+13 24330765 2013 SVM 1380 Yes No 0.58
+14 25888201 2015 Semi supervised tensor 2431 Yes No 0.6415 25725126 2015 ANN 2431 Yes No 0. 7416 SMEpred 2016 SVM 2182
+a;3130bYes Yes 0.72a;0.80b
+(S. NoDserial number; 2182aindicates the training set of normal siRNA sequences while 3130brepresents the cm-siRNAs and 0.72aand 0.801bis their respective PCC
+value.)1148 S. A. DAR ET AL.
+--- PAGE 7 ---
+as DNC and BIN individually performed poor. Whereas,
+increasing PCC value with hybrids as MNC CBIN-AS and its
+variants was seen. Nearly in all cases 2 datasets indicated a sim-ilar correlation with increased values in case of Homo-1900data set than Hetero-3031 dataset. The reason for thesedecreased values of PCC in hereto data set is because of its var-ied experimental conditions and increased number ofmodi ﬁcations.
+The algorithm developed was further authenticated using
+the independent datasets. The PCC via independent validationdata sets of corresponding siRNA feature was of the same orderas that of the 10-fold cross validation Table 1 (and Supplemen-
+tary Table S1). For instance PCC value of MNC (Hetero-3031)is 0.80 and 0.80 for 10-Fold cross validation and independentvalidation respectively, signifying a balanced training of themodels. This provides support for the models developed for
+their authenticity. The correlation between the actual and pre-
+dicted percentage inhibitions of independent validation datasetof Hetero-V
+303is shown in Fig. 2 . Each data-point represents
+the intersection of actual and predicted values of the cm-siRNAefﬁcacy for ﬁnal 3 webserver models (A, B, C). It suggests that
+the entire independent validation data set displays positive cor-relation with stronger agreement for higher ef ﬁcacies.
+For the web server execution we have chosen only MNC
+(Model-A) as the main model, which performed best. Further-
+more, we offered 2 more models along with latter one consider-ing the PCC value and different functional components of cm-siRNAs. These include (IV) MNC CBIN AS (seed 13) model;
+and (V) MNC CBIN SS (last 8) model as model B and C
+respectively on the web server (SiMEPred-tool). MNC showsbest performance and is set as default model on the web server,based on the over all composition of the entire siRNA. More-
+over if the user wants to check the effect of the modi ﬁcation on
+theﬁrst half of antisense strand he can opt for the model-B.
+This model involves information of MNC of entire siRNA andposition of the nucleotides or modi ﬁed nucleotides in the anti-
+sense strand up to 13 nucleotides from 5
+0-end. Likewise the
+model-C contains MNC for the entire siRNA and the binarypattern for the last 8 nucleotides starting from 3
+0-end of anti-
+sense strand.
+All the 3 components (SMEpred, MultiModGen, SiMEPred-
+tool) of the web server can be used to complement each other.SMEpred designs and predicts normal as well as single modi ﬁ-
+cation siRNAs, which can be further customized using Multi-ModGen for more permutations and combinations.
+MultiModGen generates the modi ﬁed siRNA sequences as
+per format that act as input in SiMEPred-tool. In this tool usercan select different models and explore cm-siRNA features to
+check the modulation in their activity.
+Conclusion
+The SMEpred algorithm is the ﬁrst pipeline, based on experi-
+mentally validated cm-siRNA datasets to generate, design,modify and check their ef ﬁcacy computationally. Prediction
+models were developed using SVM machine learning technique
+utilizing cm-siRNA data set. The compositions (including
+chemical modi ﬁcation) as well as position in siRNA sequences
+were applied to make prediction models more robust andcomprehensive. Three models were ﬁnally integrated in the
+web server namely model-A based on MNC which is set as thedefault model. Model-B is developed on MNC with binary pat-tern (BIN) (13 nucleotides from 5-end) and model-C repre-senting MNC along with 8 nucleotides from 3
+0-end). These
+models were based on their performance during model devel-opment and siRNA sequence features. SMEpred would be use-ful for general scienti ﬁc community especially those working
+on the development of siRNA therapeutics via chemical
+modi ﬁcations.
+Materials and methods
+Data collection
+We have searched research articles in PubMed and mined cm-
+siRNAs and collected data from siRNAmod database.18After
+curation, 3031 unique experimentally veri ﬁed cm-siRNAs with
+30 most common chemical modi ﬁcations were selected based
+on their usage and availability of quantitative ef ﬁcacy values.
+List of these chemical modi ﬁcations along with their one letter
+and binary codes used in this study is provided in the Supple-mentary Table S2. The length of the siRNA sequences variesfrom 21 to 24 oligonucleotides. This dataset contains non-
+redundant modi ﬁed siRNAs i.e., they possess different chemical
+modi ﬁcation or different positions if the modi ﬁcation is same.
+Besides, this data is obtained from diverse experimental condi-tions and hence termed as heterogeneous data set (Hetero-3031). To select the training/testing and the validation datasetwe have used 2 approaches. In the ﬁrst approach, 3031 cm-siR-
+NAs were arranged in the decreasing order of their activities.Next every 10
+thsequence starting from 5thsequence (5th,1 5th,
+25th, and so on) was picked up for the independent validation
+data set, total 303 sequences represented as Dataset-1 (Supple-mentary Table S3). Similarly, 2 other series of cm-siRNAsequences starting from 2
+ndand 8thsequence were chosen with
+interval of 10 sequences separately as Data set-2 and Dataset-3respectively for independent validation. While remaining 2728sequences were used as training/testing data set in each case.This procedure insures the proper distribution of siRNA ef ﬁ-
+cacy values (entire range) in the training/testing as well as in
+the independent validation datasets. Whereas in the secondapproach, cm-siRNAs were chosen randomly to make 3 inde-pendent validation data sets and remaining 2728 sequences fortraining/testing for each combination. Random numbers weregenerated using Microsoft Excel “RAND() ”function. Perfor-
+mance of SVM models for all 6 combinations (as mentionedabove) using mononucleotide composition (MNC) feature dur-
+ing 10-fold cross validation as well as on the respective inde-
+pendent validation datasets is shown in SupplementaryTable S3. All the models achieved almost similar performance.It implies that the obtained correlation is independent of thedata sets chosen. Of these, “Dataset-1 ”comprising 2728
+sequences for training/testing (Hetero-T
+2728) and 303 sequen-
+ces for independent validation (Hetero-V303) was selected for
+further SVM models development.
+Simultaneously, we have also selected another sub data set of
+2110 cm-siRNAs tested under same experimental conditionstermed as Homo-2110. It was used to generate training/testingRNA BIOLOGY 1149
+--- PAGE 8 ---
+(Homo-T1900) and independent dataset (Homo-V210) as per the
+strategy used for Hetero-3031 data set. The outline of theSMEpred model development is shown in Fig. 1 .
+SMEpred normal siRNA generation and prediction
+This algorithm is based on the homogenous dataset of 2182
+siRNA sequences.
+20This module is based on a previous work
+of our lab, for more details check the following link ( http://
+imtech.res.in/raghava/sirnapred/index.html ).35The best model
+(Hybrid-7) is provided in its backend to design the siRNAs,which is based on binary pattern and nucleotide frequencywith the PCC value of 0.72.
+35
+siRNA sequence features
+Nucleotide composition
+The ratio of each type of nucleotide in the siRNA sequence iscalled nucleotide composition. siRNA sequences were com-prised of 5 usual (A, T, G, C, U) and 30 chemically modi ﬁed
+nucleotides in both sense and antisense strand (SupplementaryTable S2). For 35 different nucleotides, the ﬁxed length vectors
+of 70 for mononucleotide composition (MNC) and 2450 fordinucleotide composition (DNC) were generated for each
+siRNA (sense and antisense).
+23
+Binary pattern (BIN)
+To obtain descriptions re ﬂecting the position of nucleotides,
+BIN is used for siRNA sequences. A BIN of size 35 is formedone for each type of nucleotide common or modi ﬁed. 24 posi-
+tions of siRNA for each strand resulted in 48-vector length persiRNA sequence. For list for BIN used refer Supplementary
+Table S2. For each nucleotide we de ﬁned 6 –bit code e.g., for
+adenosine nucleic acid we used “000001. ”Working of the BIN
+model is based on the position of the particular nucleotide inthe siRNA sequence.
+23
+Hybrid approachThe hybrid approach involves models developed using com-binations of MNC and BIN patterns ( Table 1 ). These were
+used to check the performance of the prediction method
+23
+based on different criteria. For example, MNC and BIN
+were analyzed on the basis of different lengths as well aseither or both siRNA strands. The BIN of antisense strand(AS) was further explored e.g. complete length of antisenseor different regions as seed region (8 nucleotide), up to midregion (13 nucleotide) and remaining 3
+0-end region (8
+nucleotides). The reason for selecting these regions is based
+on their importance in siRNA based interference of the cog-
+nate mRNA. See Table 1 for different combinations and
+their features used.
+Validation
+To evaluate the performance of the algorithm, we have used 10-
+fold cross validation technique. We divided the data set into 10
+equal sized sets to carry out training and testing 10 times. In
+each cycle 9 data sets were used for training; besides one sepa-rate set in testing i.e. this set is not included in that particulartraining cycle. Performance is measured in terms of Pearson
+Correlation Coef ﬁcient (PCC) using the formula:
+RD
+nPn
+nD1Eact
+iEpred
+i¡Pn
+nD1Eact
+iPn
+nD1Epred
+iﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃ
+nPn
+nD1.Eact
+i/2¡ .Pn
+nD1Eact
+i/2qﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃ
+nPn
+nD1Epred
+i/C16/C172
+¡Pn
+nD1Epred
+i/C16/C17r
+(1)
+Where nis the size of the test set, EiPredandEiactis its pre-
+dicted and actual ef ﬁcacy respectively.23
+Subsequently, we performed independent validation, which
+includes use of independent cm-siRNA sequences excluded in
+model development. This data set is used only for evaluation sothat our model should not be biased or over-trained toward thetraining dataset used during model development. Scatter plotsare formed between actual (experimental) and predicted ef ﬁ-
+cacy values for independent validation sets using Microsoftexcel for the 3 models used in SMEpred workbench.
+36
+Disclosure of potential con ﬂicts of interest
+No potential con ﬂicts of interest were disclosed.
+Funding
+This work was supported by the Council of Scienti ﬁc and Industrial
+Research (BSC0121) India and the Department of Biotechnology, Govern-
+ment of India (GAP001).
+ORCID
+Showkat Ahmad Dar http://orcid.org/0000-0002-5077-1925
+Manoj Kumar http://orcid.org/0000-0003-3769-052X
+References
+1. Gaglione M, Messere A. Recent progress in chemically modi ﬁed siR-
+NAs. Mini Rev Med Chem 2010; 7:578-95; PMID:20500149; http://dx.doi.org/10.2174/138955710791384036
+2. Kurreck J. RNA interference: from basic research to therapeutic
+applications. Angewandte Chemie (International ed in English)2009; 48:1378-98; PMID:19153977; http://dx.doi.org/10.1002/anie.200802092
+3. Tafer H, Ameres SL, Obernosterer G, Gebeshuber CA, Schroeder R,
+Martinez J, Hofacker IL. The impact of target site accessibility on thedesign of effective siRNAs. Nat Biotechnol 2008; 26:578-83;
+PMID:18438400; http://dx.doi.org/10.1038/nbt1404
+4. ElHefnawi M, Hassan N, Kamar M, Siam R, Remoli AL, El-Azab I,
+AlAidy O, Marsili G, Sgarbanti M. The design of optimal therapeuticsmall interfering RNA molecules targeting diverse strains of in ﬂuenza
+A virus. Bioinformatics 2011; 27:3364-70; PMID:21994230; http://dx.
+doi.org/10.1093/bioinformatics/btr555
+5. Behlke MA. Progress towards in vivo use of siRNAs. Mol Ther
+2006; 13:644-70; PMID:16481219; http://dx.doi.org/10.1016/j.
+ymthe.2006.01.001
+6. Bramsen JB, Laursen MB, Nielsen AF, Hansen TB, Bus C, Langkjaer N,
+B a b uB R ,H ø j l a n dT ,A b r a m o vM ,V a nA e r s c h o tA ,e ta l .Al a r g e - s c a l echemical modi ﬁcation screen identi ﬁes design rules to generate siRNAs
+with high activity, high stability and low toxicity. Nucl Acids Res 2009;
+37:2867-81; PMID:19282453; http://dx. doi.org/10.1093/nar/gkp106
+7. Ameres SL, Martinez J, Schroeder R. Molecular basis for target RNA
+recognition and cleavage by human RISC. Cell 2007; 130:101-12;
+PMID:17632058; http://dx.doi.org/10.1016/j.cell.2007.04.0371150 S. A. DAR ET AL.
+--- PAGE 9 ---
+8. Shukla S, Sumaria CS, Pradeepkumar PI. Exploring chemical modi ﬁ-
+cations for siRNA therapeutics: a structural and functional outlook.Chem Med Chem 2010; 5:328-49; PMID:20043313; http://dx.doi.org/10.1002/cmdc.200900444
+9. Bramsen JB, Kjems J. Development of therapeutic-grade small inter-
+fering RNAs by chemical engineering. Front Gen 2012; 3:154;PMID:22934103; http://dx.doi.org/10.3389/fgene.2012.00154
+10. Onizuka K, Harrison JG, Ball-Jones AA, Ibarra-Soza JM, Zheng Y, Ly
+D, Lam W, Mac S, Tantillo DJ, Beal PA. Short interfering RNA guidestrand modi ﬁers from computational screening. J Am Chem Soc 2013;
+135:17069-77; PMID:24152142; http://dx.doi.org/10.1021/ja4079754
+11. Cantara WA, Crain PF, Rozenski J, McCloskey JA, Harris KA, Zhang
+X, Vendeix FA, Fabris D, Agris PF. The RNA modi ﬁcation database,
+RNAMDB: 2011 update. Nucl Acids Res 2011; 39:D195-201;PMID:21071406; http://dx.doi.org/10.1093/nar/gkq1028
+12. Ren Y, Gong W, Zhou H, Wang Y, Xiao F, Li T. siRecords: a database
+of mammalian RNAi experiments and ef ﬁcacies. Nucl Acids Res 2009;
+37:D146-9; PMID:18996894; http://dx.doi.org/10.1093/nar/gkn817
+13. Truss M, Swat M, Kielbasa SM, Schafer R, Herzel H, Hagemeier C.
+HuSiDa –the human siRNA database: an open-access database for
+published functional siRNA sequences and technical details of ef ﬁ-
+cient transfer into recipient cells. Nucl Acids Res 2005; 33:D108-11;
+PMID:15608157; http://dx.doi.org/10.1093/nar/gki131
+14. Tyagi A, Ahmed F, Thakur N, Sharma A, Raghava GP, Kumar M. HIV-
+sirDB: a database of HIV inhibiting siRNAs. PloS One 2011; 6:e25917;PMID:22022467; http://dx.doi.org/10.1371/journal.pone.0025917
+15. Thakur N, Qureshi A, Kumar M. VIRsiRNAdb: a curated database of
+experimentally validated viral siRNA/shRNA. Nucl Acids Res 2012;40:D230-6; PMID:22139916; http://dx.doi.org/10.1093/nar/gkr1147
+16. Kozomara A, Grif ﬁths-Jones S. miRBase: annotating high con ﬁdence
+microRNAs using deep sequencing data. Nucl Acids Res 2014; 42:
+D68-73; PMID:24275495; http://dx.doi.org/10.1093/nar/gkt1181
+17. Qureshi A, Thakur N, Monga I, Thakur A, Kumar M. VIRmiRNA: a
+comprehensive resource for experimentally validated viral miRNAs
+and their targets. Database : the journal of biological databases andcuration 2014; 2014:1-10; PMID: 25380780; http://dx.doi.org/10.1093/database/bau103
+18. Dar SA, Thakur A, Qureshi A, Kumar M. siRNAmod: A database of
+experimentally validated chemically modi ﬁed siRNAs. Scient Rep
+2016; 6:20031; PMID:26818131; http://dx.doi.org/10.1038/srep20031
+19. Pan WJ, Chen CW, Chu YW. siPRED: predicting siRNA ef ﬁcacy
+using various characteristic methods. PloS one 2011; 6:e27602;
+PMID:22102913; http://dx.doi.org/10.1371/journal.pone.0027602
+20. Huesken D, Lange J, Mickanin C, Weiler J, Asselbergs F, Warner J,
+Meloon B, Engel S, Rosenberg A, Cohen D. Design of a genome-wide
+siRNA library using an arti ﬁcial neural network. Nat Biotechnol 2005;
+23:995-1001; PMID:16025102; http://dx.doi.org/10.1038/nbt1118
+21. Mysara M, Elhefnawi M, Garibaldi JM. MysiRNA: improving siRNA
+efﬁcacy prediction using a machine- learning model combining multi-
+tools and whole stacking energy (DeltaG). J Biomed Informat 2012;45:528-34.; PMID:22388012; http://dx.doi.org/10.1016/j.jbi.2012.02.005
+22. Ahmed F, Raghava GP. Designing of highly effective complementary
+and mismatch siRNAs for silencing a gene. PloS One 2011; 6:e23443;
+PMID:21853133; http://dx.doi.org/10.1371/journal.pone.0023443
+23. Qureshi A, Thakur N, Kumar M. VIRsiRNApred: a web server for
+predicting inhibition ef ﬁcacy of siRNAs targeting human viruses. J
+Translat Med 2013; 11:305; PMID:24330765; http://dx.doi.org/
+10.1186/1479-5876-11-30524. Rajput A, Gupta AK, Kumar M. Prediction and analysis of quorum
+sensing peptides based on sequence features. PloS One 2015; 10:e0120066; PMID:25781990; http://dx.doi.org/10.1371/journal.pone.0120066
+25. Kumar Gupta A, Kumar M. HPVbase –a knowledgebase of viral inte-
+grations, methylation patterns and microRNAs aberrant expression:As potential biomarkers for Human papillomaviruses mediated carci-
+nomas. Scient Rep 2015; 5:12522; PMID:26205472; http://dx.doi.org/
+10.1038/srep12522
+26. Abe N, Abe H, Nagai C, Harada M, Hatakeyama H, Harashima H,
+Ohshiro T, Nishihara M, Furukawa K, Maeda M, et al. Synthesis,
+structure, and biological activity of dumbbell-shaped nanocircular
+RNAs for RNA interference. Bioconjugate Chem 2011; 22:2082-92;PMID:21899349; http://dx.doi.org/10.1021/bc2003154
+27. Strapps WR, Pickering V, Muiru GT, Rice J, Orsborn S, Polisky BA,
+Sachs A, Bartz SR. The siRNA sequence and guide strand overhangs
+are determinants of in vivo duration of silencing. Nucl Acids Res2010; 38:4788-97; PMID:20360048; http://dx.doi.org/10.1093/nar/gkq206
+28. Takahashi M, Nagai C, Hatakeyama H, Minakawa N, Harashima H,
+Matsuda A. Intracellular stability of 2
+0-OMe-40-thioribonucleoside
+modi ﬁed siRNA leads to long-term RNAi effect. Nucl Acids Res 2012;
+40:5787-93; PMID:22411910; http://dx.doi.org/10.1093/nar/gks204
+29. Czauderna F, Fechtner M, Dames S, Aygun H, Klippel A, Pronk GJ,
+Giese K, Kaufmann J. Structural variations and stabilising modi ﬁca-
+tions of synthetic siRNAs in mammalian cells. Nucl Acids Res 2003;
+31:2705-16; PMID:12771196; http://dx.doi.org/10.1093/nar/gkg393
+30. Dowler T, Bergeron D, Tedeschi AL, Paquet L, Ferrari N, Damha MJ.
+Improvements in siRNA properties mediated by 20-deoxy-20-ﬂuoro-
+beta-D-arabinonucleic acid (FANA). Nucl Acids Res 2006; 34:1669-
+75; PMID:16554553; http://dx.doi.org/10.1093/nar/gkl033
+31. Hall AH, Wan J, Shaughnessy EE, Ramsay Shaw B, Alexander KA.
+RNA interference using boranophosphate siRNAs: structure-activity
+relationships. Nucl Acids Res 2004; 32:5991-6000; PMID:15545637;
+http://dx.doi.org/10.1093/nar/gkh936
+32. Ui-Tei K, Naito Y, Nishi K, Juni A, Saigo K. Thermodynamic stability
+and Watson-Crick base pairing in the seed duplex are major determi-
+nants of the ef ﬁciency of the siRNA-based off-target effect. Nucl Acids
+Res 2008; 36:7100-9; PMID:18988625; http://dx.doi.org/10.1093/nar/gkn902
+33. Chan CY, Carmack CS, Long DD, Maliyekkel A, Shao Y, Roninson IB,
+Ding Y. A structural interpretation of the effect of GC-content on ef ﬁ-
+ciency of RNA interference. BMC Bioinformat 2009; 10(Suppl 1):S33;PMID:19208134; http://dx.doi.org/10.1186/1471-2105-10-S1-S33
+34. Harborth J, Elbashir SM, Vandenburgh K, Manninga H, Scaringe
+SA, Weber K, Tuschl T. Sequence, chemical, and structural varia-tion of small interfering RNAs and short hairpin RNAs and theeffect on mammalian gene silencing. Antisense Nucleic Acid Drug
+Dev 2003; 13:83-105; PMID:12804036; http://dx.doi.org/10.1089/
+108729003321629638
+35. Kumar M, Lata S, Raghava G. siRNApred: SVM based method for
+predicting ef ﬁcacy value of siRNA. Proceedings of the ﬁrst interna-
+tional conference on Open Source for Computer Aided Drug Discov-
+ery (OSCADD), 2009.
+36. Qureshi A, Kaur G, Kumar M. AVCpred: An integrated web server for
+prediction and design of antiviral compounds. Chem Biol Drug
+Design 2016; Aug 4:1-10; PMID: 27490990; http://dx.doi.org/10.1111/
+cbdd.12834RNA BIOLOGY 1151

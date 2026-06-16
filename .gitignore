@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Large binaries / PDFs
+*.pdf
+*.docx
+
+# Raw patent data (large, IP-sensitive)
+/HelixZero_Biological_Catalog_43k.csv.xls
+/Data-(1)-csv.csv.xls
+
+# IDE configs
+.claude/
+.vscode/

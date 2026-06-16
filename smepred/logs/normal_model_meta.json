@@ -1,0 +1,40 @@
+{
+  "date": "2026-06-11T15:08:34.384332",
+  "all_source_pcc": 0.4102,
+  "all_source_spearman": 0.4039,
+  "all_source_mae": 14.65,
+  "loso_results": {
+    "oligoformer_Hu": {
+      "pcc": 0.2905,
+      "spearman": 0.2806,
+      "mae": 14.25,
+      "n": 2361
+    },
+    "oligoformer_Mix": {
+      "pcc": 0.201,
+      "spearman": 0.146,
+      "mae": 25.18,
+      "n": 462
+    },
+    "oligoformer_Taka": {
+      "pcc": 0.4687,
+      "spearman": 0.4768,
+      "mae": 15.42,
+      "n": 699
+    },
+    "smepred_existing": {
+      "pcc": 0.1073,
+      "spearman": 0.1291,
+      "mae": 21.78,
+      "n": 538
+    }
+  },
+  "best_iteration": 72,
+  "sources": [
+    "oligoformer_Hu",
+    "oligoformer_Mix",
+    "oligoformer_Taka",
+    "smepred_existing"
+  ],
+  "feature_dim": 156
+}
