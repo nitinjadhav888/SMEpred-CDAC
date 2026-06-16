@@ -1,4 +1,4 @@
-# SMEpred — Technology Stack & Model Rationale
+# HelixZero-CMS — Technology Stack & Model Rationale
 
 A plain-English guide to every technology used, the model training workflow, and **why
 each choice was made**.
@@ -7,7 +7,7 @@ each choice was made**.
 
 ## 1. Overview
 
-SMEpred predicts how effectively an siRNA molecule silences a gene, including the effect
+HelixZero-CMS predicts how effectively an siRNA molecule silences a gene, including the effect
 of chemical modifications. It has three layers:
 
 ```

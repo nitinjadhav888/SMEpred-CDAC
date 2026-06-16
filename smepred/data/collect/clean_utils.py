@@ -1,7 +1,7 @@
 """
 clean_utils.py — Shared data-cleaning helpers for the raw siRNA datasets.
 
-These functions implement the data-engineering rules agreed for SMEpred:
+These functions implement the data-engineering rules used by the pipeline:
 
 SEQUENCE CLEANING
   - Uppercase everything.

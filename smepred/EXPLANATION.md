@@ -1,4 +1,4 @@
-# SMEpred — Full Explanation of All Parameters
+# HelixZero-CMS — Full Explanation of All Parameters
 
 ## 1. Efficacy Score (LightGBM Column in Rank Tab)
 

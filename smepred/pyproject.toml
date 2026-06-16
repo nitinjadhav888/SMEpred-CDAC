@@ -3,13 +3,13 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
-name = "smepred"
-version = "3.0.0"
-description = "siRNA Modification Efficacy Predictor — rank chemical modification patterns for siRNA therapeutics"
+name = "helixzero-cms"
+version = "2.0.0"
+description = "Chemical Modification Scanning for siRNA Therapeutics"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "SMEpred Team"},
+    {name = "C-DAC Pune"},
 ]
 requires-python = ">=3.10"
 dependencies = [
@@ -34,11 +34,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/smepred"
-Documentation = "https://github.com/your-org/smepred#readme"
+Homepage = "https://github.com/nitinjadhav888/SMEpred-CDAC"
+Documentation = "https://github.com/nitinjadhav888/SMEpred-CDAC#readme"
 
 [project.scripts]
-smepred = "cli.run:cli"
+helixzero-cms = "cli.run:cli"
 
 [tool.setuptools.packages.find]
 where = ["."]

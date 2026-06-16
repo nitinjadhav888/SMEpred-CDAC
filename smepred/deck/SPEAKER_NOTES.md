@@ -1,4 +1,4 @@
-# SMEpred — Speaker Notes (slide-by-slide)
+# HelixZero-CMS — Speaker Notes (slide-by-slide)
 
 > ⚠️ **UPDATE 2026-06-15:** OligoFormer (the vendored transformer ensemble model) has been
 > **fully removed** from the project. All references to "ensemble with OligoFormer", "Model B",

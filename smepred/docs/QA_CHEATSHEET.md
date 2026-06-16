@@ -68,7 +68,7 @@ Keep this beside you during the CDAC presentation. One-line answers for the ques
 
 ## Three sentences worth using
 
-- ✅ *"SMEpred turns a 1,260-experiment screen into a 10-experiment screen. It does not turn it into a zero-experiment screen."*
+- ✅ *"HelixZero-CMS turns a 1,260-experiment screen into a 10-experiment screen. It does not turn it into a zero-experiment screen."*
 - ✅ *"PCC 0.77 on an independent held-out set from the original SMEpred paper validates our model against published gold-standard data."*
 - ✅ *"We validate at the level of the use case — within-siRNA modification ranking (PCC 0.68) for chemists choosing modifications; naked baseline ranking (PCC 0.55) for picking which siRNA to modify."*
 

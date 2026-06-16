@@ -1,4 +1,4 @@
-# SMEpred — Complete Implementation Documentation
+# HelixZero-CMS — Implementation Guide
 
 **Plain English guide to every algorithm, concept, and design decision.**
 

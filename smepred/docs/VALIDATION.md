@@ -1,4 +1,4 @@
-# SMEpred — Validation & Comparison Dossier
+# HelixZero-CMS — Validation & Comparison Dossier
 
 **Audience:** C-DAC Pune review panel · siRNA-design researchers · prospective wet-lab partners.
 
@@ -8,7 +8,7 @@
 
 ## TL;DR — the honest claim
 
-> **SMEpred is a wet-lab-prioritisation tool, not a wet-lab replacement.**
+> **HelixZero-CMS is a wet-lab-prioritisation tool, not a wet-lab replacement.**
 > It is ready to **shrink the experimental search space by 100×** (e.g. test the top 10 of 1,260 chemical modifications instead of all of them) with measurable accuracy on the order of the published SMEpred paper, and it adds layers (chemical-mod handling, seed-toxicity rescue) that older tools do not provide. The final go/no-go for every drug candidate still requires laboratory confirmation.
 
 This is the only claim defensible without our own wet-lab data. Everything below justifies it.
@@ -85,7 +85,7 @@ Cross-gene generalization (predicting naked siRNA efficacy for a brand-new gene)
 
 The most important kind of validation: does the model *behave* like the established biology?
 
-| Established rule (literature) | Source | SMEpred behaviour |
+| Established rule (literature) | Source | Our model's behaviour |
 |---|---|---|
 | Low 5'-antisense thermal stability → higher efficacy ("asymmetry rule") | Khvorova 2003, Schwarz 2003 | LightGBM ranks favourably across asymmetric duplexes; GC content is a top feature by gain |
 | Seed-region GC content drives off-target toxicity | Birmingham 2006, Jackson 2006 | "Seed Tox" column derived directly from Janas 2018 4,097-seed table |
@@ -139,7 +139,7 @@ Stating this explicitly because it is the most common point of misinterpretation
 | **Replace cell-viability assays before clinical work** | **NO** | Seed-lookup is a *prediction*; final toxicity decisions require cell-based validation |
 | **Replace in-vivo dose-response studies** | **NO** | Out of scope. We predict cell-line-level inhibition only |
 
-The bullet line for a Q&A defence: *"SMEpred turns a 1,260-experiment screen into a 10-experiment screen. It does not turn it into a zero-experiment screen."*
+The bullet line for a Q&A defence: *"HelixZero-CMS turns a 1,260-experiment screen into a 10-experiment screen. It does not turn it into a zero-experiment screen."*
 
 ---
 

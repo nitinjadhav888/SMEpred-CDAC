@@ -61,7 +61,7 @@ def _print_table(rows: list, fields: list):
 
 @click.group()
 def cli():
-    """SMEpred — siRNA efficacy prediction pipeline."""
+    """HelixZero-CMS — siRNA efficacy prediction pipeline."""
 
 
 @cli.command("rank")

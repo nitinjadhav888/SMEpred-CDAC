@@ -1,4 +1,4 @@
-# SMEpred — Model Metrics & Results
+# HelixZero-CMS — Model Metrics & Results
 
 **Last updated:** 2026-06-16
 **Training command:** `python models/train_gbm.py`

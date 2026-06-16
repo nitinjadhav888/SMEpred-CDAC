@@ -44,7 +44,7 @@ with _MOD_FILE.open() as _f:
 ALL_SYMBOLS: List[str] = [m["symbol"] for m in _MOD_DATA["modifications"]]  # 35 total
 SYMBOL_INDEX: dict = {s: i for i, s in enumerate(ALL_SYMBOLS)}               # symbol → index
 N_SYMBOLS: int = len(ALL_SYMBOLS)   # 35
-SIRNA_LEN: int = 21                 # standard siRNA length used in SMEpred
+SIRNA_LEN: int = 21                 # standard siRNA length (21 nt duplex)
 
 
 # ─── MNC ──────────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 """
-api/main.py — FastAPI REST API for SMEpred.
+api/main.py — FastAPI REST API for HelixZero-CMS.
 
 Exposes three endpoints:
 
@@ -45,12 +45,13 @@ APP_HTML = ROOT_DIR / "app.html"
 # ─── app setup ────────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="SMEpred API",
+    title="HelixZero-CMS API",
     description=(
-        "Predict efficacy of siRNA candidates and chemically modified siRNAs. "
-        "Based on SMEpred workbench (Dar et al., RNA Biology, 2016)."
+        "Rank siRNA candidates by predicted efficacy, scan 1,260 chemical modifications, "
+        "and flag seed-based toxicity. Inspired by the SMEpred approach "
+        "(Dar et al., RNA Biology, 2016)."
     ),
-    version="1.0.0",
+    version="2.0.0",
 )
 
 app.add_middleware(

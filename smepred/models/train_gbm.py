@@ -248,7 +248,7 @@ def main():
     only_normal = "--only-normal" in _sys.argv
     only_cm     = "--only-cm" in _sys.argv
     print("=" * 60)
-    print("SMEpred LightGBM Training (accuracy rebuild)")
+    print("HelixZero-CMS LightGBM Training")
     print(f"naked dataset: {NORMAL_CSV.name}")
     print("=" * 60)
     if not only_normal:

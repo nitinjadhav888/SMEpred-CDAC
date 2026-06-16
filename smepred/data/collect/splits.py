@@ -1,7 +1,7 @@
 """
 splits.py — Paper-accurate train/validation split.
 
-How the SMEpred paper split its data (Materials & Methods, "Data collection"):
+How the original SMEpred paper (Dar 2016) split its data:
   1. Arrange all sequences in DECREASING order of their efficacy (activity).
   2. Pick every 10th sequence starting from the 5th (5th, 15th, 25th, ...) for the
      INDEPENDENT VALIDATION set.

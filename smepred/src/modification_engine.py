@@ -1,9 +1,9 @@
 """
 modification_engine.py — Chemical modification generator.
 
-Two modes (matching the paper's SMEpred workbench):
+Two modes (inspired by the SMEpred approach, Dar et al. 2016):
 
-MODE 1 — Single-Modification Scan (used by the SMEpred pipeline)
+MODE 1 — Single-Modification Scan
   For one chosen siRNA, systematically apply each of the 30 chemical
   modifications at every position (1–21) on both strands.
   Total variants = 30 modifications × 21 positions × 2 strands = 1260 cm-siRNAs.

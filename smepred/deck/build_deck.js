@@ -34,8 +34,8 @@ const shadow = () => ({ type: "outer", color: "0B2239", blur: 9, offset: 3, angl
 const pres = new pptxgen();
 pres.layout = "LAYOUT_WIDE";          // 13.3 x 7.5
 const W = 13.3, H = 7.5;
-pres.author = "SMEpred";
-pres.title = "SMEpred — AI siRNA Efficacy Predictor";
+pres.author = "C-DAC Pune";
+pres.title = "HelixZero-CMS — Chemical Modification Scanning";
 
 // ─── shared slide furniture ────────────────────────────────────────────────
 function footer(slide, n) {

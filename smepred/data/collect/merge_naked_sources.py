@@ -4,18 +4,17 @@ naked-siRNA training set.
 
 WHY
   Our LightGBM naked-siRNA model (the Rank tab) was trained on only 661 rows from
-  HelixZero + siRNAmod. OligoFormer ships three additional published datasets in their
-  data/ folder:
+  HelixZero + siRNAmod. We sourced three additional published datasets:
     Hu.csv   (Huesken et al. 2005)        — 2,361 rows, the gold-standard set
     Mix.csv  (Reynolds/Vickers/Ui-Tei/…)  —   472 rows
     Taka.csv (Takayuki 2007)              —   702 rows
   Total: +3,535 published rows, all with experimentally measured % inhibition.
 
 FORMAT CONVERSION
-  OligoFormer stores:
+  Each source stores:
     siRNA      — 19-nt antisense (guide) strand
     label      — efficacy in [0, 1] (1 = fully silencing)
-  SMEpred expects:
+  Our pipeline expects:
     sense      — 21-nt sense strand
     antisense  — 21-nt antisense strand
     efficacy   — % inhibition in [0, 100]

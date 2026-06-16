@@ -1,4 +1,4 @@
-# SMEpred — Data Collection & Engineering (Plain English)
+# HelixZero-CMS — Data Collection & Engineering (Plain English)
 
 This document explains, step by step, how the two raw siRNA datasets were collected,
 cleaned, transformed, normalized, and turned into the CSVs the models train on. It also
