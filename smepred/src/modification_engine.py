@@ -143,11 +143,10 @@ def single_mod_scan(
         mod_symbols = list(MODIFICATION_SYMBOLS)
 
     results: List[CmSiRNA] = []
-    sirna_len = len(sense)
 
     for sym in mod_symbols:
-        for pos in range(1, sirna_len + 1):
-            # modification on sense strand only
+        # modify each position on sense strand
+        for pos in range(1, len(sense) + 1):
             mod_sense = _apply_mod(sense, pos, sym)
             results.append(CmSiRNA(
                 sense=mod_sense,
@@ -158,7 +157,8 @@ def single_mod_scan(
                 parent_sense=sense,
                 parent_antisense=antisense,
             ))
-            # modification on antisense strand only
+        # modify each position on antisense strand (independent length)
+        for pos in range(1, len(antisense) + 1):
             mod_antisense = _apply_mod(antisense, pos, sym)
             results.append(CmSiRNA(
                 sense=sense,
