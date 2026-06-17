@@ -43,7 +43,7 @@ import joblib
 
 from .parser import load_sequence
 from .sirna_generator import generate_candidates, SiRNACandidate
-from .features import extract_batch_gbm
+from .features import extract_batch_gbm, extract_batch_v4
 from .modification_engine import single_mod_scan, multimod_gen, CmSiRNA
 from .filters import annotate_candidates, toxicity_for_modified
 
@@ -246,10 +246,10 @@ def rank_sirnas(
     # Step 2: generate candidates
     candidates: List[SiRNACandidate] = generate_candidates(seq)
 
-    # Step 3: extract features
+    # Step 3: extract features (V4 for naked model)
     sense_list     = [c.sense     for c in candidates]
     antisense_list = [c.antisense for c in candidates]
-    X = extract_batch_gbm(sense_list, antisense_list)
+    X = extract_batch_v4(sense_list, antisense_list)
 
     # Step 4: predict (naked model is wrapped to handle the source one-hot)
     raw_scores = _predict_naked(X)
@@ -338,7 +338,7 @@ def rank_by_naked_score(
 
     sense_list = [c.sense for c in candidates]
     antisense_list = [c.antisense for c in candidates]
-    X_seq = extract_batch_gbm(sense_list, antisense_list)
+    X_seq = extract_batch_v4(sense_list, antisense_list)
     raw = _predict_naked(X_seq)
     scores = _normalize_scores(raw, calibrator_key="normal")
     order = np.argsort(scores)[::-1]
@@ -402,10 +402,11 @@ def predict_modified(
     List[RankedCmSiRNA] sorted best → worst.
     """
     # Step 1: get naked model parent score (matches what Rank tab shows)
-    X_parent = extract_batch_gbm([sense], [antisense])
-    raw_naked = _predict_naked(X_parent)
+    X_parent_v4 = extract_batch_v4([sense], [antisense])
+    raw_naked = _predict_naked(X_parent_v4)
     parent_score = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
-    parent_raw = _get_model(model_key).predict(X_parent)[0]  # CM raw for consistent normalization
+    X_parent_mnc = extract_batch_gbm([sense], [antisense])
+    parent_raw = _get_model(model_key).predict(X_parent_mnc)[0]  # CM raw for consistent normalization
 
     # Step 2: generate cm-siRNA variants
     if mode == "scan":

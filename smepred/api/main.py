@@ -254,10 +254,10 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
     try:
         from src.modification_engine import multi_mod_scan
         from src.predictor import _predict_naked, _normalize_scores
-        from src.features import extract_batch_gbm
+        from src.features import extract_batch_v4
 
         # Get parent score (naked model for consistency)
-        X_parent = extract_batch_gbm([req.sense], [req.antisense])
+        X_parent = extract_batch_v4([req.sense], [req.antisense])
         raw_naked = _predict_naked(X_parent)
         parent_score = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
 

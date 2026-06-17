@@ -34,7 +34,7 @@ from sklearn.model_selection import GroupShuffleSplit
 from lightgbm import LGBMRegressor, early_stopping
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from src.features import extract_batch_gbm
+from src.features import extract_batch_gbm, extract_batch_v4
 
 DATA_DIR   = Path(__file__).parent.parent / "data"
 MODELS_DIR = Path(__file__).parent
@@ -208,8 +208,8 @@ def train_normal_model():
     val_idx = df.sample(frac=0.18, random_state=42).index
     train_mask = ~df.index.isin(val_idx)
 
-    # sequence features
-    X_seq_all = extract_batch_gbm(list(df["sense"]), list(df["antisense"]))
+    # sequence features (V4: position one-hot + tri-nucleotide + GC)
+    X_seq_all = extract_batch_v4(list(df["sense"]), list(df["antisense"]))
     X_all = np.concatenate([X_seq_all, src_onehot], axis=1)
     y_all = df["efficacy"].to_numpy(float)
 

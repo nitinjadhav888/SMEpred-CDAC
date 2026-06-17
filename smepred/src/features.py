@@ -323,6 +323,50 @@ def extract_batch_gbm(
     )
 
 
+# ─── V4 features for naked siRNA model (position one-hot + TNC + GC) ──────────
+
+_BASE_MAP_V4 = {"A": 0, "C": 1, "G": 2, "U": 3}
+
+def _pad21_v4(seq: str) -> str:
+    if len(seq) >= 21:
+        return seq[:21]
+    return seq + "A" * (21 - len(seq))
+
+def extract_batch_v4(sense_list, antisense_list):
+    """
+    214-d features for the naked siRNA model.
+      - sense position one-hot:      84  (21 pos × 4 bases)
+      - sense tri-nucleotide comp:   64  (4^3 = 64)
+      - antisense tri-nucleotide:    64
+      - sense GC fraction:            1
+      - antisense GC fraction:        1
+    """
+    n = len(sense_list)
+    X = np.zeros((n, 214), dtype=np.float32)
+    bm = _BASE_MAP_V4
+    for i, (s, a) in enumerate(zip(sense_list, antisense_list)):
+        sp = _pad21_v4(s)
+        ap = _pad21_v4(a)
+        # sense position one-hot (84)
+        for pos in range(21):
+            idx = bm.get(sp[pos], 0)
+            X[i, pos * 4 + idx] = 1.0
+        # sense TNC (64)
+        for k in range(19):
+            a1 = bm.get(sp[k], 0); a2 = bm.get(sp[k+1], 0); a3 = bm.get(sp[k+2], 0)
+            X[i, 84 + a1*16 + a2*4 + a3] += 1.0
+        X[i, 84:148] /= 19.0
+        # antisense TNC (64)
+        for k in range(19):
+            a1 = bm.get(ap[k], 0); a2 = bm.get(ap[k+1], 0); a3 = bm.get(ap[k+2], 0)
+            X[i, 148 + a1*16 + a2*4 + a3] += 1.0
+        X[i, 148:212] /= 19.0
+        # GC fraction
+        X[i, 212] = (sp.count("G") + sp.count("C")) / 21.0
+        X[i, 213] = (ap.count("G") + ap.count("C")) / 21.0
+    return X
+
+
 # ─── batch extractor ──────────────────────────────────────────────────────────
 
 MODEL_FEATURE_FN = {
