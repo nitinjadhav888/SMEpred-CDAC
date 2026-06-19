@@ -37,7 +37,8 @@ from pydantic import BaseModel, Field
 import json
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from src.predictor import rank_sirnas, rank_by_naked_score, predict_modified, _efficacy_label
+from src.predictor import rank_by_naked_score, predict_modified, _efficacy_label
+from src.biophysics import adjusted_efficacy_score
 
 ROOT_DIR = Path(__file__).parent.parent
 APP_HTML = ROOT_DIR / "app.html"
@@ -72,7 +73,7 @@ class RankRequest(BaseModel):
 class SingleModRequest(BaseModel):
     sense:     str = Field(..., description="21-nt sense strand")
     antisense: str = Field(..., description="21-nt antisense strand")
-    model:     str = Field("A", description="Model: A (default), B, or C")
+    model:     str = Field("B", description="Model: B (default, unified HelixZero model)")
     top_n:     int = Field(50, description="Number of top cm-siRNA variants to return")
     full_scan: bool = Field(False, description="If true, run all 1260 variants. If false, run 40-variant mini-scan (E/D/Q/L on antisense pos 1-10).")
 
@@ -84,7 +85,7 @@ class MultiModRequest(BaseModel):
     sense_positions:     str = Field("", description="Positions for sense mods, e.g. '2,5,,10,12'")
     antisense_mods:      str = Field("", description="Mod symbols for antisense strand")
     antisense_positions: str = Field("", description="Positions for antisense mods")
-    model:               str = Field("A", description="Model: A, B, or C")
+    model:               str = Field("B", description="Model: B (default, unified HelixZero model)")
 
 
 # ─── endpoints ────────────────────────────────────────────────────────────────
@@ -153,13 +154,10 @@ def single_mod_endpoint(req: SingleModRequest):
     the top of the table instead of repeating the same % on every row (the seed
     canonical sequence is shared across all variants of one parent).
     """
-    if req.model not in ("A", "B", "C"):
-        raise HTTPException(status_code=422, detail="model must be A, B, or C")
     try:
         out = predict_modified(
             req.sense, req.antisense,
             mode="scan",
-            model_key=req.model,
             full_scan=req.full_scan,
         )
         results = out["results"]
@@ -194,13 +192,10 @@ def multi_mod_endpoint(req: MultiModRequest):
     """
     Predict the efficacy of a custom multi-modification cm-siRNA design.
     """
-    if req.model not in ("A", "B", "C"):
-        raise HTTPException(status_code=422, detail="model must be A, B, or C")
     try:
         out = predict_modified(
             req.sense, req.antisense,
             mode="multimod",
-            model_key=req.model,
             sense_mods=req.sense_mods,
             sense_positions=req.sense_positions,
             antisense_mods=req.antisense_mods,
@@ -229,7 +224,7 @@ def multi_mod_endpoint(req: MultiModRequest):
 class MultiModScanRequest(BaseModel):
     sense: str
     antisense: str
-    model: str = "A"
+    model: str = "B"
     max_mods: int = 2
     beam_width: int = 20
     full_scan: bool = False
@@ -244,10 +239,8 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
     2. Combines top hits into multi-mod candidates (beam search)
     3. Returns ranked multi-mod variants with delta vs parent
     """
-    if req.model not in ("A", "B", "C"):
-        raise HTTPException(status_code=422, detail="model must be A, B, or C")
-    if req.max_mods < 2 or req.max_mods > 3:
-        raise HTTPException(status_code=422, detail="max_mods must be 2 or 3")
+    if req.max_mods < 2 or req.max_mods > 21:
+        raise HTTPException(status_code=422, detail="max_mods must be 2–21")
     if req.beam_width < 5 or req.beam_width > 50:
         raise HTTPException(status_code=422, detail="beam_width must be 5-50")
 
@@ -257,9 +250,12 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
         from src.features import extract_batch_v4
 
         # Get parent score (naked model for consistency)
+        from src.biophysics import adjusted_efficacy_score
         X_parent = extract_batch_v4([req.sense], [req.antisense])
         raw_naked = _predict_naked(X_parent)
-        parent_score = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
+        raw_parent = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
+        parent_adjusted, _, _ = adjusted_efficacy_score(raw_parent, req.sense, req.antisense, req.sense, req.antisense)
+        parent_score = round(parent_adjusted, 2)
 
         # Run beam search
         variants = multi_mod_scan(
@@ -271,10 +267,10 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
             full_scan=req.full_scan,
         )
 
-        # Format results
+        # Format results (already biophysically adjusted in score_variants)
         results = []
         for i, v in enumerate(variants):
-            results.append({
+            entry = {
                 "rank": i + 1,
                 "sense": v.sense,
                 "antisense": v.antisense,
@@ -285,7 +281,120 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
                 "efficacy_score": round(v.efficacy_score, 2),
                 "delta_score": round(v.delta_score, 2),
                 "efficacy_label": _efficacy_label(v.efficacy_score),
-            })
+            }
+            p = getattr(v, 'penalties', None)
+            if p is not None:
+                entry["penalties"] = {k: round(v, 1) for k, v in p.items()}
+            results.append(entry)
+
+        return {
+            "parent_sense": req.sense,
+            "parent_antisense": req.antisense,
+            "parent_score": parent_score,
+            "model": req.model,
+            "total_variants": len(results),
+            "results": results,
+        }
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+# ─── Multi-Mod from Single-Mod Results ──────────────────────────────────────────
+
+class MultiModFromSingleRequest(BaseModel):
+    sense: str
+    antisense: str
+    model: str = "B"
+    max_mods: int = 5
+    beam_width: int = 20
+    full_scan: bool = True
+    single_results: Optional[list] = None
+    parent_score: Optional[float] = None
+    seed_variant: Optional[dict] = None
+    calibrator_key: Optional[str] = None
+    normalize_mode: str = "rescale"
+
+
+@app.post("/multi-mod-from-single")
+def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
+    """
+    Generate multi-modification candidates.
+
+    If single_results are provided, they are used as building blocks for beam search.
+    If not, the beam search runs its own single-mod scan internally — use this for
+    a standalone multi-mod call directly from a parent siRNA (no single-mod prerequisite).
+    """
+    if req.max_mods < 2 or req.max_mods > 21:
+        raise HTTPException(status_code=422, detail="max_mods must be 2–21")
+    if req.beam_width < 5 or req.beam_width > 100:
+        raise HTTPException(status_code=422, detail="beam_width must be 5–100")
+
+    try:
+        from src.modification_engine import multi_mod_scan, CmSiRNA
+        from src.predictor import _efficacy_label
+
+        # Convert raw dicts to lightweight objects matching RankedCmSiRNA interface
+        class SingleModProxy:
+            def __init__(self, d):
+                self.mod_symbol = d.get("mod_symbol") or d.get("modification", "")
+                self.mod_position = d.get("mod_position") or d.get("position", 0)
+                self.mod_strand = d.get("mod_strand") or d.get("strand", "")
+                self.mod_positions = d.get("mod_positions") or str(self.mod_position)
+                self.efficacy_score = d.get("efficacy_score") or d.get("score", 0)
+                self.sense = d.get("sense", "")
+                self.antisense = d.get("antisense", "")
+                self.delta_score = d.get("delta_score", 0)
+
+        single_results = [SingleModProxy(sr) for sr in req.single_results] if req.single_results is not None else None
+        seed = SingleModProxy(req.seed_variant) if req.seed_variant else None
+
+        # When single_results not provided, compute parent_score from the naked model
+        calibrator_key = req.calibrator_key
+        if req.parent_score is None:
+            from src.predictor import _predict_naked, _normalize_scores
+            from src.features import extract_batch_v4
+            from src.biophysics import adjusted_efficacy_score
+            X_parent = extract_batch_v4([req.sense], [req.antisense])
+            raw = float(_normalize_scores(_predict_naked(X_parent), calibrator_key=calibrator_key, mode=req.normalize_mode)[0])
+            parent_adj, _, _ = adjusted_efficacy_score(raw, req.sense, req.antisense, req.sense, req.antisense)
+            parent_score = round(parent_adj, 2)
+        else:
+            parent_score = req.parent_score
+
+        variants = multi_mod_scan(
+            req.sense,
+            req.antisense,
+            max_mods=req.max_mods,
+            beam_width=req.beam_width,
+            model_key=req.model,
+            full_scan=req.full_scan,
+            single_results=single_results,
+            parent_score=parent_score,
+            seed_variant=seed,
+            calibrator_key=calibrator_key,
+            normalize_mode=req.normalize_mode,
+        )
+
+        results = []
+        for i, v in enumerate(variants):
+            entry = {
+                "rank": i + 1,
+                "sense": v.sense,
+                "antisense": v.antisense,
+                "mod_symbol": v.mod_symbol,
+                "mod_position": v.mod_position,
+                "mod_strand": v.mod_strand,
+                "mod_positions": v.mod_positions or str(v.mod_position),
+                "efficacy_score": round(v.efficacy_score, 2),
+                "delta_score": round(v.delta_score, 2),
+                "efficacy_label": _efficacy_label(v.efficacy_score),
+            }
+            p = getattr(v, 'penalties', None)
+            if p is not None:
+                entry["penalties"] = {k: round(v, 1) for k, v in p.items()}
+            results.append(entry)
 
         return {
             "parent_sense": req.sense,

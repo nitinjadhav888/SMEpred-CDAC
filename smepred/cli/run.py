@@ -39,7 +39,7 @@ from pathlib import Path
 import click
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from src.predictor import rank_sirnas, rank_by_mod_potential, predict_modified
+from src.predictor import rank_sirnas, rank_by_naked_score, predict_modified
 
 
 # ─── output helpers ───────────────────────────────────────────────────────────
@@ -87,12 +87,8 @@ def rank_cmd(fasta_path, sequence, top, pool, naked, output):
         raise click.UsageError("Provide --input or --sequence.")
     source = fasta_path or sequence
 
-    if naked:
-        click.echo(f"\nGenerating and ranking siRNA candidates (naked model) ...\n")
-        results = rank_sirnas(source, top_n=top)
-    else:
-        click.echo(f"\nRanking by modification potential (pool={pool}) ...\n")
-        results = rank_by_mod_potential(source, top_n=top, candidate_pool=pool)
+    click.echo(f"\nGenerating and ranking siRNA candidates ...\n")
+    results = rank_by_naked_score(source, top_n=top)
 
     fields = ["rank", "position", "sense", "antisense", "efficacy_score", "efficacy_label"]
     rows = [r.to_dict() for r in results]
@@ -103,10 +99,7 @@ def rank_cmd(fasta_path, sequence, top, pool, naked, output):
         pd.DataFrame(rows).to_csv(output, index=False)
         click.echo(f"\nSaved to {output}")
 
-    msg = "Showing top {} of all candidates (by modification potential)."
-    if naked:
-        msg = "Showing top {} of all candidates (naked model)."
-    click.echo(f"\n{msg.format(len(results))}")
+    click.echo(f"\nShowing top {len(results)} of all candidates.")
 
 
 # ─── single-mod command ───────────────────────────────────────────────────────
@@ -114,7 +107,7 @@ def rank_cmd(fasta_path, sequence, top, pool, naked, output):
 @cli.command("single-mod")
 @click.option("--sense",     required=True, help="21-nt sense strand sequence")
 @click.option("--antisense", required=True, help="21-nt antisense strand sequence")
-@click.option("--model",     default="A", show_default=True, type=click.Choice(["A","B","C"]), help="Model: A (default), B, or C")
+@click.option("--model",     default="B", show_default=True, type=click.Choice(["B"]), help="Model: B (default, unified HelixZero model)")
 @click.option("--top",  "-n", default=20, show_default=True, help="Top N results to display")
 @click.option("--output",    default=None, help="Save results to CSV file")
 def single_mod_cmd(sense, antisense, model, top, output):
@@ -126,16 +119,26 @@ def single_mod_cmd(sense, antisense, model, top, output):
     compared to the unmodified parent siRNA.
     """
     click.echo(f"\nGenerating 1260 cm-siRNA variants and predicting efficacy (Model {model}) ...\n")
-    results = predict_modified(sense, antisense, mode="scan", model_key=model)
-    results = results[:top]
+    out = predict_modified(sense, antisense, mode="scan", model_key=model)
+    results = out["results"][:top]
 
     fields = ["rank","mod_symbol","mod_strand","mod_position","efficacy_score","delta_score","efficacy_label"]
     rows = [r.to_dict() for r in results]
     _print_table(rows, fields)
 
+    # Show top variant's biophysics penalties
+    if results:
+        r = results[0]
+        p = getattr(r, 'biophysics', None)
+        if p:
+            click.echo(f"\nBiophysical penalties (subtracted from raw):")
+            for k, v in p.items():
+                click.echo(f"  {k}: -{v:.1f}")
+
     if output:
         import pandas as pd
-        pd.DataFrame([r.to_dict() for r in predict_modified(sense, antisense, mode="scan", model_key=model)]).to_csv(output, index=False)
+        out_all = predict_modified(sense, antisense, mode="scan", model_key=model)
+        pd.DataFrame([r.to_dict() for r in out_all["results"]]).to_csv(output, index=False)
         click.echo(f"\nSaved all results to {output}")
 
 
@@ -148,7 +151,7 @@ def single_mod_cmd(sense, antisense, model, top, output):
 @click.option("--sense-positions",     default="",    help="Positions for sense mods (e.g. 2,5,,10,12)")
 @click.option("--antisense-mods",      default="",    help="Mod symbols for antisense strand")
 @click.option("--antisense-positions", default="",    help="Positions for antisense mods")
-@click.option("--model",               default="A",   show_default=True, type=click.Choice(["A","B","C"]))
+@click.option("--model",               default="B",   show_default=True, type=click.Choice(["B"]))
 def multi_mod_cmd(sense, antisense, sense_mods, sense_positions, antisense_mods, antisense_positions, model):
     """
     Predict efficacy of one custom multi-modification cm-siRNA design.
@@ -158,7 +161,7 @@ def multi_mod_cmd(sense, antisense, sense_mods, sense_positions, antisense_mods,
       means: apply F at positions 2 and 5, apply M at positions 10 and 12 on the sense strand.
     """
     click.echo(f"\nApplying custom modifications and predicting efficacy (Model {model}) ...\n")
-    results = predict_modified(
+    out = predict_modified(
         sense, antisense,
         mode="multimod",
         model_key=model,
@@ -167,13 +170,19 @@ def multi_mod_cmd(sense, antisense, sense_mods, sense_positions, antisense_mods,
         antisense_mods=antisense_mods,
         antisense_positions=antisense_positions,
     )
+    results = out["results"]
     if results:
         r = results[0]
         click.echo(f"Modified sense    : {r.sense}")
         click.echo(f"Modified antisense: {r.antisense}")
-        click.echo(f"Efficacy score    : {r.efficacy_score:.2f} / 100")
+        click.echo(f"Efficacy score    : {r.efficacy_score:.2f} / 100 (biophysically adjusted)")
         click.echo(f"Delta vs parent   : {r.delta_score:+.2f}")
         click.echo(f"Efficacy label    : {r.efficacy_label}")
+        p = getattr(r, 'biophysics', None)
+        if p:
+            click.echo(f"\nBiophysical penalties (raw score reduction):")
+            for k, v in p.items():
+                click.echo(f"  {k}: -{v:.1f}")
     else:
         click.echo("No result generated.")
 

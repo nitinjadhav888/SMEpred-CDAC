@@ -43,7 +43,7 @@ import joblib
 
 from .parser import load_sequence
 from .sirna_generator import generate_candidates, SiRNACandidate
-from .features import extract_batch_gbm, extract_batch_v4
+from .features import extract_batch_v4
 from .modification_engine import single_mod_scan, multimod_gen, CmSiRNA
 from .filters import annotate_candidates, toxicity_for_modified
 
@@ -53,14 +53,11 @@ MODELS_DIR = Path(__file__).parent.parent / "models"
 
 _MODEL_FILES = {
     "normal": MODELS_DIR / "model_normal.pkl",
-    "A":      MODELS_DIR / "model_a.pkl",
     "B":      MODELS_DIR / "model_b.pkl",
-    "C":      MODELS_DIR / "model_c.pkl",
 }
 
 _CALIBRATOR_FILES = {
     "normal": MODELS_DIR / "calibrator_naked.pkl",
-    "cm":     MODELS_DIR / "calibrator_cm.pkl",
 }
 
 _loaded_models      = {}   # lazy-loaded model cache
@@ -73,7 +70,7 @@ def _get_model(key: str):
         if not path.exists():
             raise FileNotFoundError(
                 f"Model file not found: {path}\n"
-                "Run  python models/train_gbm.py  to train and save models first."
+                "Run  python models/train_gbm_v3.py  to train and save models first."
             )
         loaded = joblib.load(path)
         # the naked model is saved as {"model": ..., "sources": [...]} so the inference
@@ -82,31 +79,14 @@ def _get_model(key: str):
     return _loaded_models[key]
 
 
-def _n_feat_extra() -> int:
-    """Number of extra features beyond the 152-d base (from mean-file JSON)."""
-    from .features import _MRNA_MEAN_FILE
-    try:
-        import json
-        raw = json.loads(_MRNA_MEAN_FILE.read_text())
-        return len(raw)
-    except Exception:
-        return 0
-
-
 def _predict_naked(X_seq: np.ndarray) -> np.ndarray:
     """Run the naked model. Pads the source one-hot with the reference source bit set."""
     bundle = _get_model("normal")
     if isinstance(bundle, dict):
         model = bundle["model"]
-        # Strip any extra features beyond the 152-d core (naked model doesn't use them)
-        n_extra = _n_feat_extra()
-        if n_extra > 0 and X_seq.shape[1] == 152 + n_extra:
-            X_seq = X_seq[:, :152]
         sources = bundle.get("sources", [])
-        # Reference source = first one in the list (Huesken when present — largest set).
         if sources:
             src_onehot = np.zeros((X_seq.shape[0], len(sources)), dtype=np.float32)
-            # find Huesken if present; else use the first source
             ref = next((i for i, s in enumerate(sources) if "Hu" in s), 0)
             src_onehot[:, ref] = 1.0
             X = np.concatenate([X_seq, src_onehot], axis=1)
@@ -129,12 +109,25 @@ def _get_calibrator(key: str):
     return _loaded_calibrators[key]
 
 
-def _normalize_scores(raw: np.ndarray, calibrator_key: str = None) -> np.ndarray:
+def _normalize_scores(raw: np.ndarray, calibrator_key: str = None, mode: str = "clip") -> np.ndarray:
     """
-    Clip raw scores to 0–100, then optionally apply isotonic calibration
-    to improve absolute score accuracy.
+    Convert raw model outputs to 0–100 scores.
+
+    Parameters
+    ----------
+    raw             : raw model predictions
+    calibrator_key  : isotonic calibrator key ("cm", "normal"), used when mode="calibrate"
+    mode            : "clip"      — clip raw to [0, 100] (default)
+                      "calibrate" — isotonic calibration then clip
+                      "rescale"   — linear rescale: raw / 113.8 * 100, clipped to [0, 100]
+                      "identity"  — clip to [0, 100] with no scaling (model already predicts 0-100)
     """
-    if calibrator_key is not None:
+    if mode == "identity":
+        return np.clip(raw, 0.0, 100.0)
+    if mode == "rescale":
+        RAW_MAX = 113.8  # known max raw output of the cm-siRNA model
+        return np.clip(raw / RAW_MAX * 100.0, 0.0, 100.0)
+    if mode == "calibrate" or calibrator_key is not None:
         cal = _get_calibrator(calibrator_key)
         if cal is not None:
             return np.clip(cal.transform(raw), 0.0, 100.0)
@@ -193,17 +186,19 @@ class RankedCmSiRNA:
     mod_symbol:      str
     mod_position:    int
     mod_strand:      str
-    efficacy_score:  float   # 0–100
-    delta_score:     float   # efficacy_score − parent score
+    efficacy_score:  float   # 0–100 (biophysically adjusted)
+    delta_score:     float   # adjusted_score − parent_adjusted_score
     efficacy_label:  str
     mod_positions:   str = ""    # all positions as comma-separated for multi-mod (e.g. "4,6")
     # Seed toxicity (canonical-base lookup + modification-aware mitigation flag)
     toxicity_score:  Optional[float] = None
     toxicity_label:  str = "Unknown"      # Safe / Caution / Toxic / Mitigated / Unknown
     toxicity_note:   str = ""             # tooltip explaining a Mitigated flag
+    # Biophysical penalty breakdown (debug / tooltip)
+    biophysics:      Optional[dict] = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "rank":            self.rank,
             "sense":           self.sense,
             "antisense":       self.antisense,
@@ -218,6 +213,9 @@ class RankedCmSiRNA:
             "toxicity_label":  self.toxicity_label,
             "toxicity_note":   self.toxicity_note,
         }
+        if self.biophysics is not None:
+            d["biophysics"] = self.biophysics
+        return d
 
 
 # ─── Workflow 1: rank unmodified siRNA candidates ─────────────────────────────
@@ -375,7 +373,7 @@ def predict_modified(
     sense: str,
     antisense: str,
     mode: str = "scan",
-    model_key: str = "A",
+    model_key: str = "B",
     full_scan: bool = False,
     # MultiModGen parameters (used when mode="multimod")
     sense_mods: str = "",
@@ -385,13 +383,14 @@ def predict_modified(
 ) -> List[RankedCmSiRNA]:
     """
     Predict efficacy of chemically modified variants of a given siRNA.
+    Unified model (Model B / HelixZero) is always used regardless of model_key.
 
     Parameters
     ----------
     sense / antisense : the 21-nt parent siRNA strands.
     mode              : "scan"     → generate single-mod variants
                         "multimod" → apply user-specified multiple modifications
-    model_key         : "A" (default), "B", or "C"
+    model_key         : kept for backward compatibility, always uses unified B
     full_scan         : True  → generate all 1260 single-mod variants (30 mods × 21 pos × 2 strands)
                         False → generate 40-variant mini-scan (E/D/Q/L on antisense pos 1-10)
     sense_mods / sense_positions            : MultiModGen input for sense strand
@@ -405,15 +404,12 @@ def predict_modified(
     X_parent_v4 = extract_batch_v4([sense], [antisense])
     raw_naked = _predict_naked(X_parent_v4)
     parent_score = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
-    X_parent_mnc = extract_batch_gbm([sense], [antisense])
-    parent_raw = _get_model(model_key).predict(X_parent_mnc)[0]  # CM raw for consistent normalization
 
     # Step 2: generate cm-siRNA variants
     if mode == "scan":
         if full_scan:
             variants: List[CmSiRNA] = single_mod_scan(sense, antisense)
         else:
-            # 40-variant mini-scan: E/D/Q/L on antisense positions 1-10
             s_list, a_list, bs_list, ba_list = _mini_mod_scan(sense, antisense)
             from .modification_engine import CmSiRNA
             variants = []
@@ -439,30 +435,37 @@ def predict_modified(
     if not variants:
         return []
 
-    # Step 3: extract features (supply base = parent strands so the model sees both the
-    # underlying sequence and the modification overlay, matching how it was trained)
+    # Step 3: extract positional features (unified B path)
     s_list = [v.sense     for v in variants]
     a_list = [v.antisense for v in variants]
     bs_list = [v.parent_sense     for v in variants]
     ba_list = [v.parent_antisense for v in variants]
-    X = extract_batch_gbm(s_list, a_list,
-                          base_sense_list=bs_list, base_antisense_list=ba_list)
+    from .features import extract_positional_features_batch
+    X = extract_positional_features_batch(s_list, a_list, bs_list, ba_list)
 
-    # Step 4: predict (parent_raw is kept in the batch so variant scores
-    # share the same isotonic calibration curve; we discard the calibrated
-    # parent score since we use the naked model score for display & deltas)
-    model = _get_model(model_key)
-    raw_all = np.append(model.predict(X), parent_raw)
-    scores_all = _normalize_scores(raw_all, calibrator_key="cm")
-    scores = scores_all[:-1]
+    # Step 4: predict (unified model)
+    model = _get_model("B")
+    raw = model.predict(X)
+    scores = _normalize_scores(raw, mode="identity")
 
-    # Step 5: rank
+    # Step 5: apply biophysical penalties + rank
+    from .biophysics import adjusted_efficacy_score
+    # Also compute parent's adjusted score for fair delta comparison
+    parent_adjusted, parent_penalties, _ = adjusted_efficacy_score(
+        parent_score, sense, antisense, sense, antisense
+    )
     order = np.argsort(scores)[::-1]
     results = []
     for rank_i, idx in enumerate(order):
         v = variants[idx]
-        s = float(scores[idx])
-        # Modification-aware seed toxicity: canonical-base lookup + rescue-mod check
+        raw_s = float(scores[idx])
+        # Biophysical penalties adjust the main efficacy score
+        adj_s, penalties, total_p = adjusted_efficacy_score(
+            raw_s, v.sense, v.antisense, v.parent_sense, v.parent_antisense
+        )
+        # Modify score label based on adjusted score
+        lab = _efficacy_label(adj_s)
+        # Modification-aware seed toxicity
         viab, tox_label, tox_note = toxicity_for_modified(v.antisense, v.parent_antisense)
         results.append(RankedCmSiRNA(
             rank=rank_i + 1,
@@ -472,12 +475,14 @@ def predict_modified(
             mod_position=v.mod_position,
             mod_strand=v.mod_strand,
             mod_positions=v.mod_positions,
-            efficacy_score=s,
-            delta_score=round(s - parent_score, 2),
-            efficacy_label=_efficacy_label(s),
+            efficacy_score=round(adj_s, 2),
+            delta_score=round(adj_s - parent_adjusted, 2),
+            efficacy_label=lab,
             toxicity_score=None if viab is None else round(viab, 1),
             toxicity_label=tox_label,
             toxicity_note=tox_note,
+            biophysics=penalties,
         ))
 
-    return {"results": results, "parent_score": round(parent_score, 2)}
+    return {"results": results, "parent_score": round(parent_adjusted, 2),
+            "parent_score_raw": round(parent_score, 2)}

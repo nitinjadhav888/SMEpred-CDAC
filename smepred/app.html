@@ -61,7 +61,7 @@
   nav button.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--surface); }
   .upload-btn:hover { background: var(--surface); border-color: var(--accent); color: var(--accent); }
 
-  main { padding: 28px 32px; max-width: 960px; }
+  main { padding: 28px 32px; max-width: 100%; }
 
   .tab { display: none; }
   .tab.active { display: block; }
@@ -113,6 +113,20 @@
   }
   button.run.loading .spinner { display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  button.mini-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+  }
+  button.mini-btn:hover { opacity: 0.8; }
 
   .results-box {
     margin-top: 24px;
@@ -263,6 +277,26 @@
   .section-sub {
     font-size: 0.8rem; color: var(--muted); margin-bottom: 20px;
   }
+  /* Indeterminate loading bar */
+  .mm-loading {
+    text-align: center; padding: 40px 20px; color: var(--muted);
+  }
+  .mm-loading .bar {
+    width: 100%; max-width: 400px; height: 5px; margin: 0 auto 12px;
+    background: var(--surface); border-radius: 6px; overflow: hidden;
+    position: relative;
+  }
+  .mm-loading .bar::after {
+    content: ''; display: block; width: 35%; height: 100%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent), var(--green));
+    border-radius: 6px; animation: loadSlide 1.2s ease-in-out infinite;
+  }
+  @keyframes loadSlide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(385%); }
+  }
+  .mm-loading .label { font-size: 0.95rem; font-weight: 600; }
+  .mm-loading .hint { font-size: 0.78rem; color: var(--muted); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -338,10 +372,11 @@
   <div class="row cols2">
     <div class="field">
       <label>Prediction Model</label>
-      <select id="sm-model">
-        <option value="A">LightGBM (cm-siRNA)</option>
-      </select>
-      <div class="hint">Gradient-boosted trees · trained on 25,763 modified siRNAs · PCC 0.68</div>
+      <div style="padding:8px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);font-size:0.85rem;color:var(--text)">
+        <strong>HelixZero (unified)</strong> — position-aware model, all 31 mod symbols
+      </div>
+      <input id="sm-model" type="hidden" value="B">
+      <div class="hint">Used by both <strong>Scan Variants</strong> and <strong>Multi-Mod</strong> buttons</div>
     </div>
     <div class="field">
       <label>Top N variants to display</label>
@@ -358,9 +393,6 @@
   <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">
     <button class="run" id="btn-sm" onclick="runSingleMod()">
       <span class="spinner"></span> Scan Variants
-    </button>
-    <button class="run" id="btn-auto-mms" onclick="runAutoMultiModScan()" style="background:linear-gradient(135deg,var(--accent),#a855f7)">
-      <span class="spinner"></span> Auto Multi-Mod Scan
     </button>
   </div>
   <div id="sm-error"></div>
@@ -405,10 +437,10 @@
   </div>
   <div class="field" style="max-width:260px">
     <label>Prediction Model</label>
-    <select id="mm-model">
-      <option value="A">LightGBM (cm-siRNA)</option>
-    </select>
-    <div class="hint">Gradient-boosted trees · 25,763 training rows</div>
+    <div style="padding:8px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);font-size:0.85rem;color:var(--text)">
+      <strong>HelixZero (unified)</strong>
+    </div>
+    <input id="mm-model" type="hidden" value="B">
   </div>
   <button class="run" id="btn-mm" onclick="runMultiMod()">
     <span class="spinner"></span> Predict Efficacy
@@ -440,6 +472,9 @@ function switchTab(name, btn) {
   if (name === 'mods') loadMods();
 }
 
+// ─── Stores last single-mod results for reuse ────────────────────────────────
+let _lastSingleModData = null;
+
 // ─── Funnel: send a ranked siRNA into the modification tabs ─────────────────────
 // This is the workflow glue: Rank finds your best naked siRNA, then one click carries
 // that exact sense/antisense into the Single-Mod and Multi-Mod tabs so you never have
@@ -453,6 +488,43 @@ function useCandidate(sense, antisense) {
   const banner = document.getElementById('sm-error');
   banner.innerHTML = `<div class="info-box">✓ Loaded siRNA from ranking. Click <strong>Scan Variants</strong> to find the best modification — or switch to Multi-Mod Design.</div>`;
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Run multi-mod beam search directly from a Rank tab candidate (no single-mod dependency)
+function updateMultiModBadge() {
+  const mm = document.getElementById('rm-maxmods')?.value || 14;
+  document.querySelectorAll('.rm-badge').forEach(el => el.textContent = '[' + mm + 'm]');
+}
+
+async function runMultiModFromRank(sense, antisense) {
+  showError('rank-error', '');
+  document.getElementById('mm-sense').value = sense;
+  document.getElementById('mm-antisense').value = antisense;
+  const mm = parseInt(document.getElementById('rm-maxmods')?.value) || 14;
+  document.getElementById('mm-results').innerHTML = `<div class="mm-loading"><div class="bar"></div><div class="label">Multi-mod beam search (max_mods=${mm})…</div><div class="hint">Full scan of 1260 single variants — may take 20–60 seconds</div></div>`;
+  const mmTabBtn = document.querySelectorAll('nav button')[2];
+  switchTab('multimod', mmTabBtn);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  try {
+    const res = await fetch(`${API}/multi-mod-from-single`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sense, antisense,
+        model: 'B',
+        max_mods: mm,
+        beam_width: Math.min(mm * 3, 30),
+        full_scan: true,
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Multi-mod scan failed');
+    renderAutoMultiModResults(data);
+    showError('mm-error', `<div class="info-box">✓ Multi-mod scan complete. <strong>${data.total_variants}</strong> candidates, showing top 30. Top score: <span style="color:var(--accent)">${data.results[0]?.efficacy_score?.toFixed(1) || '—'}</span></div>`);
+  } catch(e) {
+    showError('mm-error', e.message);
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -572,7 +644,10 @@ function renderRankResults(data) {
       <td>${effBadge(r.efficacy_label ?? r.label ?? '—')}</td>
       <td>${toxBadge(r.toxicity_score, r.toxicity_label ?? 'Unknown')}</td>
       <td>${funcCell(r.func_ok !== false, r.func_reason ?? '')}</td>
-      <td><button class="use-btn" onclick="useCandidate('${s}','${a}')" title="Send this siRNA to the modification tabs">⚗️ Modify →</button></td>
+      <td style="display:flex;gap:4px;white-space:nowrap">
+        <button class="mini-btn" onclick="useCandidate('${s}','${a}')" title="Run single-mod scan">Single-Mod</button>
+        <button class="mini-btn" onclick="runMultiModFromRank('${s}','${a}')" title="Run multi-mod beam search">Multi-Mod <span class="rm-badge" style="opacity:0.6;font-size:0.65rem">[${document.getElementById('rm-maxmods')?.value || '14'}m]</span></button>
+      </td>
     </tr>`;
   }).join('');
 
@@ -580,6 +655,10 @@ function renderRankResults(data) {
     <div class="results-box">
       <div class="results-header">
         <div>Showing <strong>${data.results.length}</strong> of <strong>${data.total_candidates}</strong> candidates (by naked baseline score)</div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:0.8rem">
+          <label style="font-weight:500;white-space:nowrap">Max mods:</label>
+          <input id="rm-maxmods" type="number" min="2" max="21" value="14" style="width:48px;font-size:0.75rem;padding:2px 4px">
+        </div>
       </div>
       <div class="table-wrap">
         <table>
@@ -628,42 +707,44 @@ async function runSingleMod() {
   }
 }
 
-// Auto Multi-Mod Scan — beam search from Single-Mod to Multi-Mod tab
-async function runAutoMultiModScan() {
-  const sense = document.getElementById('sm-sense').value.trim().toUpperCase();
-  const antisense = document.getElementById('sm-antisense').value.trim().toUpperCase();
-  if (!sense || !antisense) return showError('sm-error', 'Both strands are required.');
+// Load a single-mod variant into Multi-Mod tab and auto-run full multi-mod scan
+async function loadMultiModFromVariant(idx) {
+  const data = _lastSingleModData;
+  if (!data?.results?.[idx]) return;
+  const variant = data.results[idx];
+  const sense = data.parent_sense ?? document.getElementById('sm-sense').value.trim().toUpperCase();
+  const antisense = data.parent_antisense ?? document.getElementById('sm-antisense').value.trim().toUpperCase();
+  const model = document.getElementById('mm-model').value;
+  const parentScore = data.parent_score;
 
-  const fullScan = document.getElementById('sm-full-scan').checked;
-  const model = document.getElementById('sm-model').value;
-  showError('sm-error', '');
-  setLoading('btn-auto-mms', true);
+  // Pre-fill and switch tab
+  document.getElementById('mm-sense').value = sense;
+  document.getElementById('mm-antisense').value = antisense;
+  const mm = parseInt(document.getElementById('rm-maxmods')?.value) || 14;
+  document.getElementById('mm-results').innerHTML = `<div class="mm-loading"><div class="bar"></div><div class="label">Multi-mod beam search (max_mods=${mm})…</div><div class="hint">Scanning variants — may take 20–60 seconds</div></div>`;
+  const mmTabBtn = document.querySelectorAll('nav button')[2];
+  switchTab('multimod', mmTabBtn);
+  showError('mm-error', '');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 
   try {
-    const res = await fetch(`${API}/multi-mod-scan`, {
+    const res = await fetch(`${API}/multi-mod-from-single`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sense, antisense, model, max_mods: 2, beam_width: 20, full_scan: fullScan })
+      body: JSON.stringify({
+        sense, antisense, model,
+        max_mods: mm, beam_width: Math.min(mm * 3, 30),
+        single_results: data.results,
+        parent_score: parentScore,
+        seed_variant: variant,
+      })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Request failed');
-
-    // Switch to Multi-Mod tab
-    const mmTabBtn = document.querySelectorAll('nav button')[2];
-    switchTab('multimod', mmTabBtn);
-
-    // Pre-fill the Multi-Mod tab with parent strands
-    document.getElementById('mm-sense').value = sense;
-    document.getElementById('mm-antisense').value = antisense;
-
-    // Render auto-scan results in Multi-Mod tab
-    renderAutoMultiModResults(data);
-    showError('mm-error', `<div class="info-box">✓ Auto Multi-Mod Scan complete. <strong>${data.total_variants}</strong> candidates found. Top delta: <span style="color:var(--accent)">+${data.results[0]?.delta_score?.toFixed(2) || '—'}</span></div>`);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const rdata = await res.json();
+    if (!res.ok) throw new Error(rdata.detail || 'Request failed');
+    renderAutoMultiModResults(rdata);
+    showError('mm-error', `<div class="info-box">✓ Multi-mod scan for variant #${idx+1} complete. <strong>${rdata.total_variants}</strong> candidates (up to 5 modifications each, showing top 30). Top delta: <span style="color:var(--accent)">+${rdata.results[0]?.delta_score?.toFixed(2) || '—'}</span></div>`);
   } catch(e) {
-    showError('sm-error', e.message);
-  } finally {
-    setLoading('btn-auto-mms', false);
+    showError('mm-error', e.message);
   }
 }
 
@@ -699,6 +780,7 @@ function modToxDeltaCell(varScore, varLabel, varNote, parentLabel) {
 }
 
 function renderSingleModResults(data) {
+  _lastSingleModData = data;
   if (!data.results?.length) {
     document.getElementById('sm-results').innerHTML = '<div class="error-box">No variants returned.</div>';
     return;
@@ -713,13 +795,16 @@ function renderSingleModResults(data) {
     const deltaStr = delta != null
       ? `<span style="color:${delta >= 0 ? '#34d399' : '#f87171'}">${delta >= 0 ? '+' : ''}${delta.toFixed(2)}</span>`
       : '—';
+    const modPos = r.mod_position ?? r.position ?? '—';
+    const modSym = r.mod_symbol ?? r.modification ?? '—';
+    const modStrnd = r.mod_strand ?? r.strand ?? '—';
     return `<tr>
       <td style="color:var(--muted)">${r.rank ?? i+1}</td>
       <td style="letter-spacing:0.05em">${r.sense ?? '—'}</td>
       <td style="letter-spacing:0.05em">${r.antisense ?? '—'}</td>
-      <td>${r.mod_strand ?? r.strand ?? '—'}</td>
-      <td>${r.mod_position ?? r.position ?? '—'}</td>
-      <td>${r.mod_symbol ?? r.modification ?? '—'}</td>
+      <td>${modStrnd}</td>
+      <td>${modPos}</td>
+      <td>${modSym}</td>
       <td>${scoreBar(r.efficacy_score ?? r.score ?? 0)}</td>
       <td>${deltaStr}</td>
       <td>${modToxDeltaCell(r.toxicity_score, r.toxicity_label ?? 'Unknown', r.toxicity_note ?? '', parentLabel)}</td>
@@ -755,7 +840,7 @@ function renderSingleModResults(data) {
         <table>
           <thead><tr>
             <th>#</th><th>Modified Sense</th><th>Modified Antisense</th>
-            <th>Strand</th><th>Pos</th><th>Mod</th><th>Score</th><th>Δ Score</th>
+            <th>Strand</th><th>Pos</th><th>Mod</th><th>Score (adj.)</th><th>Δ Score</th>
             <th title="Per-row toxicity change vs parent seed">Tox Δ</th>
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -783,7 +868,7 @@ async function runMultiMod() {
         sense_positions:     document.getElementById('mm-spos').value.trim(),
         antisense_mods:      document.getElementById('mm-amods').value.trim(),
         antisense_positions: document.getElementById('mm-apos').value.trim(),
-        model:               document.getElementById('mm-model').value,
+        model:               'B',
       })
     });
     const data = await res.json();
@@ -804,9 +889,26 @@ function renderMultiModResult(data) {
   const delta = r.delta_score;
   const tox = modToxBadge(r.toxicity_score, r.toxicity_label ?? 'Unknown', r.toxicity_note ?? '');
 
-  // Hide noisy fields from the meta grid (already shown above as badges)
+  // Penalties shown as small red/orange badges (only if available)
+  const p = r.penalties;
+  let penaltyHtml = '';
+  if (p) {
+    const labels = {'nuclease':'Nuc','immuno':'Imm','risc':'RISC','thermo':'Therm','serum':'Serum'};
+    const items = Object.entries(labels).map(([k, lab]) => {
+      const val = p[k] ?? 0;
+      const color = val < 4 ? '#34d399' : val < 8 ? '#fbbf24' : '#f87171';
+      return `<span style="display:inline-flex;align-items:center;gap:3px;margin:2px 6px 2px 0;font-size:0.72rem;color:var(--muted);background:var(--surface);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">
+        ${lab}<span style="color:${color};font-weight:600">-${val.toFixed(1)}</span>
+      </span>`;
+    }).join('');
+    penaltyHtml = `<div style="margin-top:8px;font-size:0.72rem;color:var(--muted)">
+      <span style="text-transform:uppercase;letter-spacing:0.05em;margin-right:8px">Penalties:</span>${items}
+    </div>`;
+  }
+
+  // Hide noisy fields from the meta grid
   const hidden = new Set(['efficacy_score','score','efficacy_label','label','delta_score','rank',
-                          'toxicity_score','toxicity_label','toxicity_note']);
+                          'toxicity_score','toxicity_label','toxicity_note','biophysics','composite_score','penalties']);
   const metas = Object.entries(r)
     .filter(([k]) => !hidden.has(k))
     .map(([k, v]) => `<div class="meta-item"><div class="key">${k}</div><div class="val">${v ?? '—'}</div></div>`)
@@ -839,29 +941,42 @@ function renderMultiModResult(data) {
         </div>
       </div>
       <div class="meta-grid">${metas}</div>
+      ${penaltyHtml}
     </div>`;
 }
 
-// Render Auto Multi-Mod Scan results in Multi-Mod tab (table format like Single-Mod)
+// Render Auto Multi-Mod Scan results in Multi-Mod tab (top 30 displayed)
 function renderAutoMultiModResults(data) {
   if (!data.results?.length) {
     document.getElementById('mm-results').innerHTML = '<div class="error-box">No variants returned.</div>';
     return;
   }
+  const displayLimit = 30;
+  const displayResults = data.results.slice(0, displayLimit);
+  const total = data.total_variants;
+
   const parentScore = data.parent_score;
   const parentBadge = `<div style="display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border);margin-bottom:12px">
     <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Parent baseline</span>
     <span style="font-size:0.9rem;font-weight:700;color:var(--text)">${scoreBarSmall(parentScore)}</span>
     <span style="width:1px;height:20px;background:var(--border)"></span>
-    <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Auto Beam Search</span>
-    <span style="font-size:0.75rem;color:var(--muted);font-family:monospace">Top <strong>${data.results.length}</strong> of <strong>${data.total_variants}</strong> beam candidates — Model <strong>${data.model}</strong></span>
+    <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Multi-Mod Beam Search</span>
+    <span style="font-size:0.75rem;color:var(--muted);font-family:monospace">Top <strong>${displayResults.length}</strong> of <strong>${total}</strong> candidates — Model <strong>${data.model}</strong></span>
   </div>`;
 
-  const rows = data.results.map((r, i) => {
+  const rows = displayResults.map((r, i) => {
     const delta = r.delta_score;
     const deltaStr = delta != null
       ? `<span style="color:${delta >= 0 ? '#34d399' : '#f87171'}">${delta >= 0 ? '+' : ''}${delta.toFixed(2)}</span>`
       : '—';
+    const p = r.penalties;
+    let penaltyTip = '';
+    if (p) {
+      const items = ['nuclease','immuno','risc','thermo','serum'].map(k =>
+        `${k.charAt(0).toUpperCase()+k.slice(1)}: -${(p[k]||0).toFixed(1)}`
+      ).join(' | ');
+      penaltyTip = ` title="${items}"`;
+    }
     return `<tr>
       <td style="color:var(--muted)">${r.rank ?? i+1}</td>
       <td style="letter-spacing:0.05em">${r.sense}</td>
@@ -877,14 +992,14 @@ function renderAutoMultiModResults(data) {
   document.getElementById('mm-results').innerHTML = `
     <div class="results-box">
       <div class="results-header">
-        <div>Top <strong>${data.results.length}</strong> of <strong>${data.total_variants}</strong> beam variants — Model <strong>${data.model}</strong></div>
+        <div>Top <strong>${displayResults.length}</strong> of <strong>${total}</strong> beam variants — Model <strong>${data.model}</strong></div>
       </div>
       ${parentBadge}
       <div class="table-wrap">
         <table>
           <thead><tr>
             <th>#</th><th>Modified Sense</th><th>Modified Antisense</th>
-            <th>Strand(s)</th><th>Mod(s)</th><th>Pos</th><th>Score</th><th>Δ Score</th>
+            <th>Strand(s)</th><th>Mod(s)</th><th>Pos</th><th>Score (adj.)</th><th>Δ Score</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>

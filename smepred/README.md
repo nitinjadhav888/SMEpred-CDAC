@@ -144,7 +144,8 @@ Built-in safety filters:
 │   ├── model_a.pkl / b.pkl / c.pkl   cm-siRNA LightGBM (152-d, 799 trees)
 │   ├── model_normal.pkl               Naked siRNA LightGBM (156-d, 84 trees)
 │   ├── calibrator_cm.pkl / calibrator_naked.pkl   Isotonic calibrators
-│   └── train_gbm.py                    Training script
+│   ├── train_gbm_v3.py                 Training script (v3, 152-d, production)
+│   └── calibrate.py                   Isotonic calibrator fitting
 ├── data/
 │   ├── hetero_train_2728.csv / hetero_val_303.csv   cm-siRNA data
 │   ├── normal_siRNA_extended.csv                    Naked siRNA data (4 sources)

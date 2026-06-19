@@ -239,8 +239,13 @@ def multi_mod_scan(
     antisense: str,
     max_mods: int = 2,
     beam_width: int = 20,
-    model_key: str = "A",
+    model_key: str = "B",
     full_scan: bool = False,
+    single_results: Optional[List] = None,
+    parent_score: Optional[float] = None,
+    seed_variant: Optional[object] = None,
+    calibrator_key: Optional[str] = None,
+    normalize_mode: str = "clip",
 ) -> List[CmSiRNA]:
     """
     Beam-search multi-modification scan.
@@ -248,16 +253,26 @@ def multi_mod_scan(
     1. Run single-mod scan (or mini-scan) to get top-K single-mod hits
     2. Combine top hits into 2-mod candidates (deduped, order-independent)
     3. Score 2-mod candidates, keep top-K
-    4. Repeat for 3-mod if max_mods >= 3
-    4. Return all scored variants sorted by efficacy
+    4. Repeat for 3-mod, 4-mod, … up to max_mods
+    5. Return all scored variants sorted by efficacy
+
+    When seed_variant is provided, it is placed at the top of the initial beam
+    so the search explores multi-mod combinations built on top of it.
 
     Parameters
     ----------
     sense, antisense : parent siRNA
-    max_mods         : maximum modifications per variant (2 or 3)
+    max_mods         : maximum modifications per variant (2+)
     beam_width       : keep top-K at each expansion step
     model_key        : "A", "B", or "C" for scoring
     full_scan        : if True, use full 1260 single-mod scan; else 40-variant mini-scan
+    single_results   : optional pre-computed single-mod results (list of RankedCmSiRNA)
+    parent_score     : optional pre-computed parent score (required if single_results provided)
+    seed_variant     : optional single-mod variant to seed the beam
+    calibrator_key   : calibrator key for _normalize_scores (used when normalize_mode="calibrate")
+    normalize_mode   : "clip" — raw clip to [0,100]
+                       "calibrate" — isotonic calibration
+                       "rescale" — linear rescale to known model max (113.8)
 
     Returns
     -------
@@ -268,25 +283,46 @@ def multi_mod_scan(
     import numpy as np
 
     # Step 1: get single-mod results (includes parent score)
-    single_out = predict_modified(sense, antisense, mode="scan", model_key=model_key, full_scan=full_scan)
-    parent_score = single_out["parent_score"]
-    single_results = single_out["results"]
+    if single_results is None:
+        single_out = predict_modified(sense, antisense, mode="scan", model_key=model_key, full_scan=full_scan)
+        parent_score = single_out.get("parent_score_raw", single_out["parent_score"])
+        single_results = single_out["results"]
+    elif parent_score is None:
+        raise ValueError("parent_score must be provided when single_results is given")
 
-    # Diversify beam: take top result PER modification type (and strand)
-    # This ensures we combine different mod types (E+L, E+F, L+Q) not just E+E
-    best_per_type: dict = {}
+    # Diversify beam: guarantee representation from every mod type
+    from collections import defaultdict
+    per_mod: dict = defaultdict(list)
     for r in single_results:
-        key = (r.mod_symbol, r.mod_strand)  # e.g., ("E", "antisense")
-        if key not in best_per_type or r.efficacy_score > best_per_type[key].efficacy_score:
-            best_per_type[key] = r
+        per_mod[r.mod_symbol].append(r)
 
-    diversified = list(best_per_type.values())
-    diversified.sort(key=lambda r: r.efficacy_score, reverse=True)
-    beam_results = diversified[:beam_width]
+    for sym, entries in per_mod.items():
+        entries.sort(key=lambda r: r.efficacy_score, reverse=True)
 
-    # Convert to CmSiRNA with scored efficacy
+    # Round-robin pick: 1st from every mod type, then 2nd, etc. up to beam_width
+    diversified: list = []
+    max_per = max(len(lst) for lst in per_mod.values())
+    for rank in range(max_per):
+        for sym in sorted(per_mod.keys()):
+            if rank < len(per_mod[sym]):
+                diversified.append(per_mod[sym][rank])
+            if len(diversified) >= beam_width:
+                break
+        if len(diversified) >= beam_width:
+            break
+
+    # Build initial beam — seed_variant first, then fill with diversified results
+    beam_raw: list = []
+    if seed_variant is not None:
+        beam_raw.append(seed_variant)
+    for r in diversified:
+        if len(beam_raw) >= beam_width:
+            break
+        beam_raw.append(r)
+
+    # Convert to CmSiRNA with scored efficacy (re-score with the correct normalize_mode)
     beam: List[CmSiRNA] = []
-    for r in beam_results:
+    for r in beam_raw:
         v = CmSiRNA(
             sense=r.sense,
             antisense=r.antisense,
@@ -300,60 +336,74 @@ def multi_mod_scan(
         v.delta_score = r.delta_score
         beam.append(v)
 
-    all_scored = list(beam)  # keep all scored variants
-
     # Helper: predict efficacy for a batch of variants
     def score_variants(variants: List[CmSiRNA]) -> List[CmSiRNA]:
         if not variants:
             return []
-        from .features import extract_batch_gbm
+        from .features import extract_positional_features_batch
         from .predictor import _get_model, _normalize_scores
+        from .biophysics import adjusted_efficacy_score
 
         s_list = [v.sense for v in variants]
         a_list = [v.antisense for v in variants]
         bs_list = [v.parent_sense for v in variants]
         ba_list = [v.parent_antisense for v in variants]
 
-        X = extract_batch_gbm(s_list, a_list, base_sense_list=bs_list, base_antisense_list=ba_list)
-        model = _get_model(model_key)
+        X = extract_positional_features_batch(s_list, a_list, bs_list, ba_list)
+        model = _get_model("B")
         raw = model.predict(X)
-        scores = _normalize_scores(raw, calibrator_key="cm")
+        raw_scores = _normalize_scores(raw, mode="identity")
 
         out = []
-        for v, s in zip(variants, scores):
-            v.efficacy_score = float(s)
-            v.delta_score = round(float(s) - parent_score, 2)
+        for v, rs in zip(variants, raw_scores):
+            adj_s, penalties, _ = adjusted_efficacy_score(
+                float(rs), v.sense, v.antisense,
+                v.parent_sense, v.parent_antisense
+            )
+            v.efficacy_score = round(adj_s, 2)
+            v.delta_score = round(adj_s - parent_adjusted, 2)
+            v.penalties = penalties
             out.append(v)
         return out
+
+    # Compute parent adjusted score once
+    from .biophysics import adjusted_efficacy_score
+    parent_adjusted, _, _ = adjusted_efficacy_score(
+        parent_score, sense, antisense, sense, antisense
+    )
+
+    # Re-score initial beam — use adjusted scores from now on
+    beam = score_variants(beam)
+    beam.sort(key=lambda x: x.efficacy_score, reverse=True)
+    all_scored = list(beam)
 
     # Beam expansion for multi-mod
     for n_mods in range(2, max_mods + 1):
         candidates = []
 
-        # Combine each beam member with each single-mod hit (order-independent)
-        # To avoid duplicates, enforce canonical ordering: (sym, pos, strand, positions) <= ...
-        def mod_key(v: CmSiRNA) -> tuple:
-            return (v.mod_symbol, v.mod_position, v.mod_strand, v.mod_positions)
+        def mod_key(v) -> tuple:
+            sym = getattr(v, 'mod_symbol', '')
+            pos = getattr(v, 'mod_position', 0)
+            strand = getattr(v, 'mod_strand', '')
+            positions = getattr(v, 'mod_positions', '')
+            return (sym, pos, strand, positions)
 
         seen = set()
         for v1 in beam:
             for v2 in single_results:
                 k1 = mod_key(v1)
                 k2 = mod_key(v2)
-                # Canonical ordering to dedup
                 pair = tuple(sorted([k1, k2]))
                 if pair in seen:
                     continue
                 seen.add(pair)
 
-                # Build combined variant from parent sequence
                 mod_sense = list(v1.parent_sense)
                 mod_antisense = list(v1.parent_antisense)
                 mod_symbols = []
                 mod_positions = []
                 mod_strands = []
 
-                # Reconstruct ALL of v1's modifications by comparing modified vs parent sequence
                 for i in range(len(sense)):
                     if v1.sense[i] != v1.parent_sense[i]:
                         mod_sense[i] = v1.sense[i]
@@ -367,11 +417,9 @@ def multi_mod_scan(
                         mod_positions.append(i + 1)
                         mod_strands.append("antisense")
 
-                # Apply v2's mod (check not same position on same strand)
-                # v2 is RankedCmSiRNA (no parent_* fields); its parent is the original sense/antisense
                 if v2.mod_strand == "sense":
                     if mod_sense[v2.mod_position - 1] != sense[v2.mod_position - 1]:
-                        continue  # position already modified by v1
+                        continue
                     mod_sense[v2.mod_position - 1] = v2.mod_symbol
                 else:
                     if mod_antisense[v2.mod_position - 1] != antisense[v2.mod_position - 1]:
@@ -392,14 +440,10 @@ def multi_mod_scan(
                     parent_antisense=antisense,
                 ))
 
-        # Score candidates
         scored = score_variants(candidates)
-
-        # Keep top beam_width for next round
         scored.sort(key=lambda v: v.efficacy_score, reverse=True)
         beam = scored[:beam_width]
         all_scored.extend(scored)
 
-    # Final sort: best efficacy first
     all_scored.sort(key=lambda v: v.efficacy_score, reverse=True)
     return all_scored

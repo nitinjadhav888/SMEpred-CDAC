@@ -67,7 +67,7 @@ For the **naked-siRNA model** (drives the Rank tab):
 ### 2.3 Reproducibility
 
 - All randomness seeded (`random_state=42`).
-- Running `python models/train_gbm.py` reproduces every number above exactly.
+- Running `python models/train_gbm_v3.py` reproduces every number above exactly.
 - Recorded in **[METRICS.md](METRICS.md)** with the exact training command.
 - 19/19 unit tests in `tests/test_pipeline.py` cover feature extraction, modification engine, sequence parser, candidate generator.
 

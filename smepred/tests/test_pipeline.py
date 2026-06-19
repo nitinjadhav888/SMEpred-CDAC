@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.parser import load_sequence, _normalize, _parse_fasta
 from src.sirna_generator import generate_candidates, _reverse_complement
-from src.features import mnc_vector, mnc_full, bin_vector, features_model_a, features_model_b, features_model_c
+from src.features import extract_positional_features_batch, extract_batch_v4
 from src.modification_engine import single_mod_scan, multimod_gen, _apply_mod
 
 
@@ -66,51 +66,51 @@ def test_candidate_length():
 
 # ─── feature tests ────────────────────────────────────────────────────────────
 
-def test_mnc_sums_to_one():
-    seq = "AUGCAUGCAUGCAUGCAUGCA"
-    vec = mnc_vector(seq)
-    total = vec.sum()
-    assert abs(total - 1.0) < 1e-5, f"MNC should sum to 1, got {total}"
-
-def test_mnc_full_shape():
-    sense = "AUGCAUGCAUGCAUGCAUGCA"
-    antisense = "UGCAUUGCAUGCAUGCAUGCU"
-    vec = mnc_full(sense, antisense)
-    assert vec.shape == (70,), f"Expected (70,), got {vec.shape}"
-
-def test_model_a_feature_shape():
+def test_positional_features_shape():
     s = "GCAGCACGACUUCUUCAAGUU"
     a = "CUUGAAGAAGUCGUGCUGCUU"
-    f = features_model_a(s, a)
-    assert f.shape == (140,)   # 70 base + 70 modified
+    X = extract_positional_features_batch([s], [a])
+    assert X.shape == (1, 1467), f"Expected (1, 1467), got {X.shape}"
 
-def test_model_b_feature_shape():
+def test_positional_features_multi_batch():
+    s1 = "GCAGCACGACUUCUUCAAGUU"
+    a1 = "CUUGAAGAAGUCGUGCUGCUU"
+    s2 = "AUGCAUGCAUGCAUGCAUGCA"
+    a2 = "UGCAUGCAUGCAUGCAUGCAU"
+    X = extract_positional_features_batch([s1, s2], [a1, a2])
+    assert X.shape == (2, 1467)
+
+def test_positional_features_detects_mod():
+    base_s = "GCAGCACGACUUCUUCAAGUU"
+    base_a = "CUUGAAGAAGUCGUGCUGCUU"
+    mod_s  = "FCAGCACGACUUCUUCAAGUU"  # F at position 1
+    X_base = extract_positional_features_batch([base_s], [base_a], [base_s], [base_a])
+    X_mod  = extract_positional_features_batch([mod_s], [base_a], [base_s], [base_a])
+    # The two vectors should differ (mod introduces flags)
+    assert not np.allclose(X_base, X_mod), "modified and unmodified should differ"
+
+def test_v4_features_shape():
     s = "GCAGCACGACUUCUUCAAGUU"
-    a = "CUUGAAGAAGUCGUGCUGCUU"
-    f = features_model_b(s, a)
-    expected = 140 + 35 * 13  # 140 + 455 = 595
-    assert f.shape == (expected,), f"Expected ({expected},), got {f.shape}"
+    a = "CUUGAAGAAGTCGUGCUGCUU"
+    X = extract_batch_v4([s], [a])
+    assert X.shape == (1, 214), f"Expected (1, 214), got {X.shape}"
 
-def test_model_c_feature_shape():
-    s = "GCAGCACGACUUCUUCAAGUU"
-    a = "CUUGAAGAAGUCGUGCUGCUU"
-    f = features_model_c(s, a)
-    expected = 140 + 35 * 8   # 140 + 280 = 420
-    assert f.shape == (expected,), f"Expected ({expected},), got {f.shape}"
+def test_v4_features_multi_batch():
+    s1 = "GCAGCACGACUUCUUCAAGUU"
+    a1 = "CUUGAAGAAGUCGUGCUGCUU"
+    s2 = "AUGCAUGCAUGCAUGCAUGCA"
+    a2 = "UGCAUGCAUGCAUGCAUGCAU"
+    X = extract_batch_v4([s1, s2], [a1, a2])
+    assert X.shape == (2, 214)
 
-def test_model_a_base_differs_from_modified():
-    # when base != modified, the two MNC halves should differ
-    base_s, base_a = "GCAGCACGACUUCUUCAAGUU", "CUUGAAGAAGUCGUGCUGCUU"
-    mod_s = "MCAGCACGACUUCUUCAAGUU"   # one 2'-OMe at position 1
-    f = features_model_a(mod_s, base_a, base_sense=base_s, base_antisense=base_a)
-    assert f.shape == (140,)
-    assert not (f[:70] == f[70:]).all(), "base and modified halves should differ"
-
-def test_bin_vector_binary():
-    seq = "AUGCAUGCAUGCAUGCAUGCA"
-    vec = bin_vector(seq)
-    unique = set(vec.tolist())
-    assert unique <= {0.0, 1.0}, "BIN vector should be binary"
+def test_v4_features_onehot_sums_to_one():
+    s = "AUGCAUGCAUGCAUGCAUGCA"
+    a = "UGCAUGCAUGCAUGCAUGCAU"
+    X = extract_batch_v4([s], [a])
+    # First 84 features = position one-hot (21 pos × 4 bases)
+    onehot = X[0, :84].reshape(21, 4)
+    row_sums = onehot.sum(axis=1)
+    assert np.allclose(row_sums, 1.0), "each position row should sum to 1"
 
 
 # ─── modification engine tests ────────────────────────────────────────────────
@@ -157,6 +157,78 @@ def test_multimod_gen_multi_type():
     assert result.sense[4] == "M"   # position 5
 
 
+# ─── biophysics tests ────────────────────────────────────────────────────────
+
+def test_biophysics_nuclease_penalty_ps():
+    from src.biophysics import nuclease_penalty, adjusted_efficacy_score
+    s = "GCAGCACGACUUCUUCAAGUU"
+    a = "CUUGAAGAAGUCGUGCUGCUU"
+    p0 = nuclease_penalty(s, a, s, a)
+    assert p0 >= 0
+    # PS at sense 5' terminus reduces penalty
+    mod_s = "S" + s[1:]
+    p_ps = nuclease_penalty(mod_s, a, s, a)
+    assert p_ps <= p0, f"PS at terminus should reduce nuclease penalty: {p_ps} > {p0}"
+    # Adjusted score should be lower than raw
+    adj, _, _ = adjusted_efficacy_score(100, s, a, s, a)
+    assert 0 <= adj <= 100
+    assert adj < 100, "Penalties should reduce raw score"
+
+def test_biophysics_immuno_uridine_penalty():
+    from src.biophysics import immuno_penalty
+    s = "U" * 21
+    a = "U" * 21
+    # All unmodified U → high penalty
+    p0 = immuno_penalty(s, a, s, a)
+    # Modify all U with M → lower penalty
+    mod_s = "M" * 21
+    mod_a = "M" * 21
+    p_mod = immuno_penalty(mod_s, mod_a, s, a)
+    assert p_mod <= p0, "Modifying all U should reduce immuno penalty"
+
+def test_biophysics_risc_5p_reduces_penalty():
+    from src.biophysics import risc_penalty
+    s = "GCAGCACGACUUCUUCAAGUU"
+    a = "CUUGAAGAAGUCGUGCUGCUU"
+    p0 = risc_penalty(s, a, s, a)
+    mod_a = "1" + a[1:]  # 5'-P on antisense
+    p_5p = risc_penalty(s, mod_a, s, a)
+    assert p_5p <= p0, "5'-P should reduce RISC penalty"
+
+def test_biophysics_thermo_low_gc_penalty():
+    from src.biophysics import thermo_penalty
+    # Ideal GC = 43% (9/21) → within 35-50% sweet spot
+    ideal = "AUGCAUGCAAUGCAUGCAUGC"
+    ideal_a = "GCAUGCAUUGCAUGCAUGCAU"
+    p_ideal = thermo_penalty(ideal, ideal_a, ideal, ideal_a)
+    # 0% GC → extreme, penalty should be higher
+    low_gc = "AU" * 10 + "AA"
+    low_gc_a = "UA" * 10 + "UU"
+    p_low = thermo_penalty(low_gc, low_gc_a, low_gc, low_gc_a)
+    assert p_low > p_ideal, f"Low GC should have higher penalty than ideal: {p_low} <= {p_ideal}"
+
+def test_biophysics_serum_ps_reduces_penalty():
+    from src.biophysics import serum_penalty
+    s = "GCAGCACGACUUCUUCAAGUU"
+    a = "CUUGAAGAAGUCGUGCUGCUU"
+    p0 = serum_penalty(s, a, s, a)
+    mod_a = "S" + a[1:20] + "S"
+    p_ps = serum_penalty(s, mod_a, s, a)
+    assert p_ps <= p0, "PS at AS termini should reduce serum penalty"
+
+def test_biophysics_adjusted_score_range():
+    from src.biophysics import adjusted_efficacy_score, nuclease_penalty, immuno_penalty, risc_penalty, thermo_penalty, serum_penalty
+    s = "GCAGCACGACUUCUUCAAGUU"
+    a = "CUUGAAGAAGUCGUGCUGCUU"
+    for fn in [nuclease_penalty, immuno_penalty, risc_penalty, thermo_penalty, serum_penalty]:
+        p = fn(s, a, s, a)
+        assert 0 <= p <= 40, f"{fn.__name__} returned {p} outside expected range"
+    adj, penalties, total = adjusted_efficacy_score(80, s, a, s, a)
+    assert 0 <= adj <= 100
+    assert set(penalties.keys()) == {"nuclease", "immuno", "risc", "thermo", "serum"}
+    assert total >= 0
+
+
 # ─── run tests ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -168,18 +240,24 @@ if __name__ == "__main__":
         test_reverse_complement,
         test_candidate_count,
         test_candidate_length,
-        test_mnc_sums_to_one,
-        test_mnc_full_shape,
-        test_model_a_feature_shape,
-        test_model_b_feature_shape,
-        test_model_c_feature_shape,
-        test_model_a_base_differs_from_modified,
-        test_bin_vector_binary,
+        test_positional_features_shape,
+        test_positional_features_multi_batch,
+        test_positional_features_detects_mod,
+        test_v4_features_shape,
+        test_v4_features_multi_batch,
+        test_v4_features_onehot_sums_to_one,
         test_apply_mod_position,
         test_single_mod_scan_count,
         test_single_mod_all_positions_covered,
         test_multimod_gen_basic,
         test_multimod_gen_multi_type,
+        # Biophysics
+        test_biophysics_nuclease_penalty_ps,
+        test_biophysics_immuno_uridine_penalty,
+        test_biophysics_risc_5p_reduces_penalty,
+        test_biophysics_thermo_low_gc_penalty,
+        test_biophysics_serum_ps_reduces_penalty,
+        test_biophysics_adjusted_score_range,
     ]
 
     passed = 0
