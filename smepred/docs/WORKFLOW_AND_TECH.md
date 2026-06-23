@@ -10,83 +10,88 @@
 6. [Training Pipeline](#6-training-pipeline)
 7. [Inference Pipeline](#7-inference-pipeline)
 8. [Modification Engine Algorithms](#8-modification-engine-algorithms)
-9. [API Layer](#9-api-layer)
-10. [Frontend Architecture](#10-frontend-architecture)
-11. [Pseudocode for Key Algorithms](#11-pseudocode-for-key-algorithms)
-12. [Tech Stack Summary](#12-tech-stack-summary)
-13. [File Structure Reference](#13-file-structure-reference)
+9. [Biophysical Penalty System](#9-biophysical-penalty-system)
+10. [API Layer](#10-api-layer)
+11. [Frontend Architecture](#11-frontend-architecture)
+12. [Clinical Validation](#12-clinical-validation)
+13. [Pseudocode for Key Algorithms](#13-pseudocode-for-key-algorithms)
+14. [Tech Stack Summary](#14-tech-stack-summary)
+15. [File Structure Reference](#15-file-structure-reference)
 
 ---
 
 ## 1. System Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        USER INTERFACES                                   │
-│                                                                          │
-│  ┌──────────────┐    ┌──────────────┐    ┌───────────────────────────┐  │
-│  │  Web Browser  │    │    CLI/Term   │    │  REST Client (curl, etc) │  │
-│  │  (app.html)   │    │  (cli/run.py) │    │                          │  │
-│  └──────┬───────┘    └──────┬───────┘    └─────────────┬─────────────┘  │
-│         │                  │                          │                  │
-└─────────┼──────────────────┼──────────────────────────┼──────────────────┘
-          │          HTTP    │  CLI invocation          │  HTTP
-          ▼                  ▼                          ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           API LAYER                                      │
-│                                                                          │
-│              ┌──────────────────────────────────────┐                   │
-│              │           FastAPI Server              │                   │
-│              │  ┌──────────────────────────────┐    │                   │
-│              │  │  /rank           → Predictor  │    │                   │
-│              │  │  /single-mod     → Predictor  │    │                   │
-│              │  │  /multi-mod      → Predictor  │    │                   │
-│              │  │  /multi-mod-scan → ModEngine  │    │                   │
-│              │  │  /modifications  → JSON file  │    │                   │
-│              │  └──────────────────────────────┘    │                   │
-│              └──────────────────────────────────────┘                   │
-└─────────────────────────────┬───────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        PREDICTION ENGINE                                 │
-│                                                                          │
-│  ┌────────────┐  ┌────────────┐  ┌────────────────┐  ┌──────────────┐  │
-│  │  Predictor  │  │  Features  │  │  Modification  │  │   Filters    │  │
-│  │  (predict  │──│ (extract   │──│  Engine (scan, │──│ (toxicity,   │  │
-│  │  .py)      │  │  .py)      │  │  beam, etc)    │  │  func check) │  │
-│  └──────┬─────┘  └────────────┘  └────────────────┘  └──────────────┘  │
-│         │                                                               │
-│         ▼                                                               │
-│  ┌──────────────┐  ┌────────────────┐                                  │
-│  │  Model B v4  │  │  Naked Model   │                                  │
-│  │  (LightGBM   │  │  (LightGBM     │                                  │
-│  │   .pkl)      │  │   .pkl)        │                                  │
-│  └──────────────┘  └────────────────┘                                  │
-│                                                                          │
-└─────────────────────────────┬───────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                       DATA & CONFIGURATION                               │
-│                                                                          │
-│  ┌─────────────────┐  ┌────────────────────┐  ┌─────────────────────┐  │
-│  │  Trained Models  │  │  Calibrators       │  │  Toxicity Table     │  │
-│  │  (model_*.pkl)   │  │  (calibrator_*)    │  │  (cell_viability)   │  │
-│  ├─────────────────┤  ├────────────────────┤  ├─────────────────────┤  │
-│  │  model_b.pkl    │  │  calibrator_naked  │  │  4,097 seed → %     │  │
-│  │  model_normal   │  │  .pkl              │  │  viability mappings │  │
-│  │  .pkl           │  │                    │  │                     │  │
-│  └─────────────────┘  └────────────────────┘  └─────────────────────┘  │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            USER INTERFACES                                   │
+│                                                                              │
+│  ┌──────────────┐    ┌──────────────┐    ┌───────────────────────────────┐  │
+│  │  Web Browser  │    │    CLI/Term   │    │  REST Client (curl, Python)  │  │
+│  │  (app.html)   │    │  (cli/run.py) │    │                              │  │
+│  └──────┬───────┘    └──────┬───────┘    └──────────────┬────────────────┘  │
+│         │                  │                            │                    │
+└─────────┼──────────────────┼────────────────────────────┼────────────────────┘
+          │         HTTP     │  CLI invocation            │  HTTP
+          ▼                  ▼                            ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              API LAYER                                       │
+│                                                                              │
+│              ┌───────────────────────────────────────────┐                  │
+│              │            FastAPI Server                  │                  │
+│              │  ┌─────────────────────────────────────┐  │                  │
+│              │  │  GET  /                        HTML │  │                  │
+│              │  │  POST /rank            → Predictor  │  │                  │
+│              │  │  POST /rank/upload      → Predictor  │  │                  │
+│              │  │  POST /single-mod       → Predictor  │  │                  │
+│              │  │  POST /multi-mod        → Predictor  │  │                  │
+│              │  │  POST /multi-mod-scan   → ModEngine  │  │                  │
+│              │  │  POST /multi-mod-from-single         │  │                  │
+│              │  │  GET  /modifications   → JSON file   │  │                  │
+│              │  └─────────────────────────────────────┘  │                  │
+│              └───────────────────────────────────────────┘                  │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          PREDICTION ENGINE                                   │
+│                                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  ┌──────────────┐│
+│  │  Predictor    │  │  Features    │  │  Modification    │  │  Biophysics  ││
+│  │  (predict    │──│ (extract     │──│  Engine (scan,   │──│  (penalties, ││
+│  │   .py)       │  │  .py)        │  │  beam search)    │  │  adjustment) ││
+│  └──────┬───────┘  └──────────────┘  └──────────────────┘  └──────────────┘│
+│         │               │                                                    │
+│         ▼               ▼                                                    │
+│  ┌──────────────┐  ┌────────────────┐                                       │
+│  │  Model B v4  │  │  Naked Model   │                                       │
+│  │  (LightGBM   │  │  (LightGBM     │                                       │
+│  │   1,115 tr)  │  │   .pkl)        │                                       │
+│  │  1,467 feats │  │   214 feats    │                                       │
+│  └──────────────┘  └────────────────┘                                       │
+│                                                                              │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        DATA & CONFIGURATION                                  │
+│                                                                              │
+│  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────────┐ │
+│  │  Trained Models    │  │  Calibrators       │  │  Toxicity Table        │ │
+│  │  (model_*.pkl)     │  │  (calibrator_*)    │  │  (cell_viability.tsv)  │ │
+│  ├────────────────────┤  ├────────────────────┤  ├────────────────────────┤ │
+│  │  model_b.pkl       │  │  calibrator_naked  │  │  4,097 seed hexamers   │ │
+│  │  model_normal.pkl  │  │  .pkl              │  │  → viability % mapping │ │
+│  └────────────────────┘  └────────────────────┘  └────────────────────────┘ │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 2. End-to-End Data Flow
 
-### Workflow 1: Rank siRNA Candidates (unmodified)
+### Workflow 1a: Rank siRNA Candidates (Gene/Transcript mode)
 
 ```
 User Input (mRNA sequence or FASTA file)
@@ -101,8 +106,9 @@ User Input (mRNA sequence or FASTA file)
 ┌────────────────────────┐
 │  sirna_generator.py    │  ← Sliding window: position → (sense, antisense)
 │  generate_candidates() │      Window size = 21, step = 1
+│                        │      Returns (N − 20) candidates
 └───────────┬────────────┘
-            │ List[SiRNACandidate] (N − 20 candidates)
+            │ List[SiRNACandidate]
             ▼
 ┌────────────────────────┐
 │  features.py           │  ← Extract V4 features (214-d per candidate)
@@ -122,851 +128,774 @@ User Input (mRNA sequence or FASTA file)
 └───────────┬────────────┘
             │ RankedSiRNA list, sorted by efficacy (high → low)
             ▼
-    Return to API/CLI/UI
+    Return to API/CLI/UI (Rank tab)
 ```
 
-### Workflow 2: Single-Mod Scan (modified)
+### Workflow 1b: Rank siRNA Candidates (DsiRNA mode)
+
+```
+User Input (25–30 nt DsiRNA sequence, input_type="dsirna")
+    │
+    ▼
+┌──────────────────────────────────┐
+│  sirna_generator.py              │  ← Dicer cleavage rule (not sliding window)
+│  generate_dsirna_candidate()     │     Takes first 21 nt as sense strand
+│                                  │     Returns SINGLE candidate (not N−20)
+└───────────┬──────────────────────┘
+            │ List[SiRNACandidate] with exactly 1 entry
+            ▼
+    (Same prediction pipeline as Workflow 1a)
+```
+
+### Workflow 2: Single-Mod Scan
 
 ```
 User Input (sense, antisense, options)
     │
     ▼
 ┌──────────────────────────────┐
-│  modification_engine.py      │  ← Generate 1,260 single-mod variants
-│  single_mod_scan()           │     30 mod symbols × 21 positions × 2 strands
+│  modification_engine.py      │  ← Generate 1,302 single-mod variants
+│  single_mod_scan()           │     31 mod symbols × 21 positions × 2 strands
 └──────────────┬───────────────┘
-               │ List[CmSiRNA]
+               │ List[CmSiRNA] (1,302 entries for full scan)
                ▼
 ┌──────────────────────────────┐
 │  features.py                 │  ← Extract positional features (1,467-d)
-│  extract_positional_features │     Per-variant: 33 flags/pos × 42 pos
-│  _batch()                    │     + 70 global counts + 16 summary + 1 log_conc
+│  extract_positional_features │     Per-variant: 33 flags/pos × 42 positions
+│  _batch()                    │     + 62 global counts + 16 summary + 1 log
 └──────────────┬───────────────┘
-               │ np.array shape: (1260, 1467)
+               │ np.array shape: (n_variants, 1467)
                ▼
 ┌──────────────────────────────┐
-│  predictor.py                │  ← Load Model B LightGBM (1115 trees)
+│  predictor.py                │  ← Load Model B LightGBM (1,115 trees)
 │  _get_model("B") → predict() │     Identity normalization → [0, 100]
 └──────────────┬───────────────┘
                │ Raw scores → scores[0, 100]
                ▼
 ┌──────────────────────────────┐
+│  biophysics.py               │  ← Apply 5-domain biophysical penalties
+│  adjusted_efficacy_score()   │     adjusted = raw − 0.70 × total_penalty
+│                              │     Clamped to [0, 100]
+└──────────────┬───────────────┘
+               │ Adjusted scores with penalty breakdown
+               ▼
+┌──────────────────────────────┐
 │  filters.py                  │  ← Modification-aware seed toxicity
 │  toxicity_for_modified()     │     "Mitigated" if rescue mod present
 └──────────────┬───────────────┘
-               │ RankedCmSiRNA list, sorted by efficacy
+               │ RankedCmSiRNA list, sorted by adjusted efficacy
                ▼
-     Return to API: top-N variants + parent score + toxicity
+     Return to API: top-N variants + both baseline scores
 ```
 
 ### Workflow 3: Multi-Mod Beam Search
 
 ```
-User Input (sense, antisense, max_mods=auto, beam_width)
+User Input (sense, antisense, max_mods, beam_width, full_scan)
     │
     ▼
-┌─────────────────────────────────────┐
-│  Step 1: Run single-mod scan        │
-│  (same as Workflow 2, full 1,260)   │
-└──────────────┬──────────────────────┘
-               │ List[RankedCmSiRNA] + parent_score
-               ▼
-┌─────────────────────────────────────┐
-│  Step 2: Diversify initial beam     │
-│  Round-robin through all 30 mod     │
-│  types, pick top from each          │
-└──────────────┬──────────────────────┘
-               │ beam = [variant_1, variant_2, ..., variant_K]
-               ▼
-┌─────────────────────────────────────┐
-│  Step 3: Score all beam candidates  │
-│  (extract features + predict)       │
-└──────────────┬──────────────────────┘
-               │ Scored + sorted by efficacy
-               ▼
-┌─────────────────────────────────────┐
-│  Step 4: Expand (iterative)         │
-│  for n = 2 to max_mods:             │
-│    for each beam_candidate:         │
-│      for each single_result:        │
-│        combine if no position       │
-│        conflict                     │
-│    score new candidates             │
-│    keep top-K as new beam           │
-│    if score plateau → EARLY STOP   │
-└──────────────┬──────────────────────┘
-               │ All scored variants (1-mod through N-mod)
-               ▼
-┌─────────────────────────────────────┐
-│  Step 5: Compute composite score    │
-│  for each variant:                  │
-│    composite = 0.5×efficacy_norm    │
-│               + 0.12×nuclease       │
-│               + 0.12×immunogenicity  │
-│               + 0.12×RISC_loading    │
-│               + 0.14×thermo_stability│
-└──────────────┬──────────────────────┘
-               │ Variants sorted by composite score
-               ▼
-┌─────────────────────────────────────┐
-│  Step 6: Return top-N variants      │
-│  with full biophysics breakdown     │
-└─────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  Step 0: Compute both baselines              │
+│  - Naked baseline (V4 model, Rank tab view)  │
+│  - Model B baseline (positional, fair delta) │
+│  Both returned for transparent display       │
+└──────────────────┬───────────────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────────────┐
+│  Step 1: Run single-mod scan (or mini-scan)  │
+│  Full: 31 mods × 21 pos × 2 strands = 1,302  │
+│  Mini: E/D/Q/L on AS pos 1-10 = 40 variants  │
+└──────────────────┬───────────────────────────┘
+                   │ List[RankedCmSiRNA] + parent_score
+                   ▼
+┌──────────────────────────────────────────────┐
+│  Step 2: Diversify initial beam              │
+│  Round-robin through all mod symbol types    │
+│  Pick top from each → beam width K           │
+└──────────────────┬───────────────────────────┘
+                   │ beam = [variant_1, ..., variant_K]
+                   ▼
+┌──────────────────────────────────────────────┐
+│  Step 3: Score all beam candidates           │
+│  Batch feature extraction + batch predict    │
+│  (fully vectorized — single model.predict()) │
+└──────────────────┬───────────────────────────┘
+                   │ Scored + sorted by adjusted efficacy
+                   ▼
+┌──────────────────────────────────────────────┐
+│  Step 4: Expand (iterative, n = 2..max_mods) │
+│  for each beam candidate:                    │
+│    for each single_result (pool top 3×K):    │
+│      combine if no position conflict         │
+│  score new candidates (batched)              │
+│  keep top-K as new beam                      │
+│  if current_best - best[−3] < 0.5 → STOP    │
+└──────────────────┬───────────────────────────┘
+                   │ All scored variants (1-mod through N-mod)
+                   ▼
+    Return to API: ranked results + baselines + metadata
 ```
 
 ---
 
 ## 3. Module-by-Module Walkthrough
 
-### 3.1 `src/parser.py` — Input Parsing
+### `src/parser.py` — Sequence I/O
 
-**Responsibilities:**
-- Accept mRNA sequence in plain text or FASTA format
-- Normalize DNA→RNA (T→U)
-- Validate only A/U/G/C characters
-- Raise on empty or too-short sequences (<21 nt)
+- `normalize_seq()`: Converts DNA T→U, validates only A/U/G/C characters, uppercases.
+- `load_sequence()`: Accepts plain string, inline FASTA (`>header\nseq`), or file path. Returns a single concatenated RNA string.
 
-**Key function:** `load_sequence(source)` returns a single RNA string.
+### `src/sirna_generator.py` — Candidate Generation
 
-**Design decision:** Single-file input keeps the API simple. Multi-gene inputs are handled by the user running the app on one gene at a time.
+- `_reverse_complement()`: Uses `str.maketrans("AUGC", "UACG")` + slicing `[::-1]`.
+- `generate_candidates()`: Sliding window of size 21, step size 1. Each window → `SiRNACandidate(position, sense, antisense)`. Produces `len(mrna) − 20` candidates.
+- `generate_dsirna_candidate()`: Dicer-substrate mode for 25–30 nt inputs. Takes first 21 nt as sense strand, returns exactly one candidate (not a sliding window).
 
-### 3.2 `src/sirna_generator.py` — Candidate Generation
+### `src/features.py` — Feature Extraction (Two Models)
 
-**Responsibilities:**
-- Slide a 21-nt window across the mRNA
-- For each window, generate:
-  - **Sense strand:** identical to mRNA segment (T→U)
-  - **Antisense strand:** reverse complement of sense
-- Return `List[SiRNACandidate]`
+**Model B v4 — Positional Features (1,467 dimensions):**
 
-**Key function:** `generate_candidates(seq)` returns candidates with 0-based position, sense, antisense.
+1. **Per-position flags (33 × 42 = 1,386):** For each of 42 positions (21 sense + 21 antisense), encode 33 Boolean flags: 4 canonical bases (A/U/G/C), 31 modification symbols. One-hot-like but can have multiple flags (a modified position has both the base and the mod symbol flags set).
 
-**Edge cases:**
-- Short sequences (<21 nt): zero candidates
-- Non-A/U/G/C characters: flagged by parser upstream
+2. **Per-strand global counts (31 × 2 = 62):** For each strand (sense, antisense), count occurrences of each of the 31 modification symbols.
 
-### 3.3 `src/features.py` — Feature Extraction
+3. **Summary statistics (8 × 2 = 16):** For each strand: total mod count, unique mod types, M count, F count, L count, E count, D count, PS backbone count.
 
-#### Model B v4 Features (1,467-d)
+4. **Log concentration (1):** log₁₀(10) = 1.0 (default 10 nM).
 
-Used for modified siRNA prediction.
+**Naked V4 — Sequence Features (214 dimensions):**
 
-```
-Per position (21 pos × 2 strands × 33 flags):
-  ├── 31 × is_mod_type_X     (binary: is this modification type at this position?)
-  ├── 1 × is_canonical       (binary: no modification here)
-  └── 1 × is_modified        (binary: any modification here)
+1. **Sense one-hot (84):** 4 bases × 21 positions.
+2. **Sense TNC (64):** Trinucleotide composition (4³ = 64).
+3. **Antisense TNC (64):** Same for antisense.
+4. **GC content (2):** Sense GC%, antisense GC%.
 
-Per strand (×2):
-  ├── 31 × global_count_X    (how many of each mod type on this strand)
-  ├── 5 × summary_stats     (frac_mod, seed_2F_frac, seed_2OMe_frac,
-  │                          cleave_2F_count, cleave_2OMe_count, cleave_LNA_count)
-  ├── 1 × gc_content         (of base sequence)
-  ├── 1 × term_5_ps          (is position 1 PS?)
-  └── 1 × term_3_ps          (is position 21 PS?)
+### `src/predictor.py` — Unified Prediction Interface
 
-Global:
-  └── 1 × log_conc           (log concentration + 1, default 10 nM)
+**Functions:**
 
-Total: 33×42 + 31×2 + 8×2 + 1 = 1,467 features
-```
+- `_get_model(key)`, `_get_calibrator(key)`: Lazy-load LightGBM models and sklearn calibrators with caching. Searches `models/` directory by naming convention.
+- `_predict_naked(X)`: Handles the legacy source one-hot padding required by models trained on the old `all_features.csv` format (adds 400 columns of source one-hot encoding to reach 214 + 400 = 614 total).
+- `_normalize_scores(raw, mode, calibrator_key)`: Normalizes raw LightGBM scores to [0, 100]:
+  - `mode="identity"`: Pass-through (used for Model B).
+  - `mode="clip"`: Clip to [0, 100].
+  - `mode="rescale"`: Min-max rescale to [0, 100].
+  - `mode="calibrate"`: Platt-calibrate via `CalibratedClassifierCV`, then apply `_v4_transform`.
+- `rank_sirnas()` / `rank_by_naked_score()`: Workflow 1 — parse sequence, generate candidates, extract V4 features, predict with Naked model, apply filters.
+- `predict_modified()`: Workflow 2 — compute both baselines (Naked Model for Rank-compatible view, Model B for fair delta calculation), generate variants, extract positional features, predict with Model B, apply biophysical penalties, return ranked results with both baselines.
 
-#### Naked Model V4 Features (214-d)
+**Models:**
+- **Naked Model (V4)**: 214-dimensional sequence features, PCC=0.55. Used for initial screening in the Rank tab.
+- **Model B (HelixZero v4)**: 1,467-dimensional position-aware features, PCC=0.822, Spearman=0.823. Trained on 83,535 cm-siRNA variants. 1,115 trees, 127 leaves, learning rate 0.03.
 
-Used for unmodified siRNA ranking.
+### `src/modification_engine.py` — Chemical Modification Space
 
-```
-Sense strand:
-  ├── 84 = 21 pos × 4 one-hot (A/U/G/C)
-  ├── 64 = tri-nucleotide composition (4×4×4 / 19, normalized)
-  └──  1 = GC content
+**Modification Symbols (31 total):**
 
-Antisense strand:
-  ├── 64 = tri-nucleotide composition (4×4×4 / 19, normalized)
-  └──  1 = GC content
-
-Total: 84 + 64 + 1 + 64 + 1 = 214 features
-```
-
-**Why two feature extractors?**
-- The naked model does not use modification information (there are none)
-- The modified model needs position-aware modification flags to distinguish "2'-OMe at position 5" from "2'-OMe at position 15"
-
-### 3.4 `src/predictor.py` — Prediction Orchestration
-
-**Responsibilities:**
-- Load and cache LightGBM models (lazy loading)
-- Route workflow: rank naked siRNAs or predict modified variants
-- Normalize scores to 0–100
-- Coordinate feature extraction, model inference, and annotation
+| Category | Symbols | Count |
+|----------|---------|-------|
+| Canonical | A, U, G, C | 4 |
+| Sugar | F (2'-F), M (2'-OMe), L (LNA), E (2'-MOE), D (2'-O-DMAOE) | 5 |
+| Backbone | S (PS), 1 (5'-PO₄) | 2 |
+| Base | 2 (dihydrouridine), 3 (pseudouridine), 5 (5-Me-C), 6 (UNA), 8 (GNA), 9 (TNA), Y (ENA) | 7 |
+| Exotic | B (2'-F-ANA), J (2'-O-Pyrene), V (2'-O-N3), I (Inosine), N (2'-O-N3-A), O (2'-O-N3-U), P (2'-O-N3-C), R (2'-O-N3-G), H (2'-O-N3-T), K (LNA-T), Z (LNA-C), Q (α-LLNA), W (2'-O-allyl), X (2'-O-propargyl), 7 (locked-ENA) | 13 |
 
 **Key functions:**
-- `rank_by_naked_score(source)` — rank unmodified candidates
-- `predict_modified(sense, antisense, mode, ...)` — predict modified variants
-- `_get_model(key)` — lazy-load models from disk
-- `_normalize_scores(raw, mode)` — identity/clip/rescale normalization
+- `_apply_mod()`: Replace a single nucleotide with a modification symbol. Handles canonical substitution (e.g., A→M for 2'-OMe) and exotic insertions.
+- `_parse_multimod_input()`: Parses comma-separated strings like `"F,,M"` and `"2,5,,10,12"` into modification lists.
+- `single_mod_scan()`: Generates all 31 × 21 × 2 = 1,302 single-modification variants.
+- `multimod_gen()`: Applies multiple modifications from user-specified strings.
+- `multi_mod_scan()`: Full beam search with diversity initialization, batched scoring, and plateau-based early stopping.
 
-### 3.5 `src/modification_engine.py` — Chemical Modification Generator
+### `src/biophysics.py` — Five-Domain Penalty System
 
-**Responsibilities:**
-- Generate single-modification scan variants (1,260)
-- Generate user-specified multi-modification designs
-- Run beam-search multi-mod scan (combinatorial optimization)
-- Track conflicts (same position modified twice)
+Five orthogonal penalty domains adjust the raw efficacy score. See [Section 9](#9-biophysical-penalty-system) for complete details.
 
-**Three modes:**
+- **Nuclease (0–16):** PS backbone coverage, 2'-modification density.
+- **Immunogenicity (0–28):** Unmodified uridine residues, GU-rich motifs (non-stacking), over-methylation.
+- **RISC Loading (−10 to 60):** 5'-phosphate, seed modifications, LNA/MOE/GNA/ENA/TNA rules, 2'-F deficiency, exotic micro-penalties.
+- **Thermo (0–20):** GC extremes, palindrome, homopolymer, GC runs.
+- **Serum (0–17):** Termini protection (PS or 5'-PO₄/GalNAc).
 
-| Mode | Function | Output |
-|------|----------|--------|
-| Single-mod scan | `single_mod_scan()` | 1,260 variants |
-| MultiModGen | `multimod_gen()` | 1 custom variant |
-| Beam search | `multi_mod_scan()` | K candidates (K grows with expansion) |
+**Adjusted Score:**
+```
+adjusted = max(0.0, min(100.0, raw_score − 0.70 × total_penalty))
+```
 
-### 3.6 `src/filters.py` — Safety & Quality Filters
+### `src/filters.py` — Safety and Toxicity Checks
 
-**Responsibilities:**
-- Seed toxicity lookup (Janas et al. 2018 table)
-- Modification-aware toxicity (rescue mod override)
-- Functional checks (GC content, homopolymers, palindromes)
-
-**Data dependency:** `data/oligoformer/cell_viability.tsv` — 4,097 seed→viability mappings.
+- `toxicity_score()`: Looks up antisense seed hexamer (positions 2–7) in pre-loaded `cell_viability.tsv` table (4,097 seeds). Returns viability %.
+- `toxicity_label()`: ≥75% → Safe, ≥55% → Caution, <55% → Toxic, not found → Unknown.
+- `seed_rescue_check()`: Detects rescue modifications (M, F, L, E) in seed positions 2–7.
+- `toxicity_for_modified()`: If rescue mod is present and base seed is Toxic/Caution → label becomes "Mitigated".
+- `functional_check()`: Reynolds/Ui-Tei rules — GC content 30–65%, no homopolymer runs (≥4), no GC run ≥6, no palindrome (≥8 nt), no consecutive runs ≥4.
+- `annotate_candidates()`: Batch annotation for the Rank tab.
 
 ---
 
 ## 4. Model Selection Rationale
 
-### Why LightGBM Over Alternatives?
+### Why LightGBM over alternatives?
 
-| Model | Pros | Cons | Decision |
-|-------|------|------|----------|
-| **SVR (RBF kernel)** | — Good on small data | — O(n²) scaling → intractable at 83k rows | ❌ Rejected |
-| **Random Forest** | — Good baseline | — Worse accuracy than GBDT on tabular data | ❌ Rejected |
-| **XGBoost** | — Industry standard | — Level-wise growth slower for high-dim features | ❌ Rejected |
-| **LightGBM** | — Leaf-wise, histogram-based, fast training on 83k × 1,467; native categorical support; built-in CV | — Can overfit on very small data | ✅ **Selected** |
-| **Neural Network** | — High capacity | — Requires more data; less interpretable; harder to deploy | ❌ Rejected |
+| Model | Pros | Cons | Performance |
+|-------|------|------|-------------|
+| **LightGBM** | Fast training, native categorical support, built-in regularization, feature importance, GPU support | Requires careful tuning for small datasets | **PCC=0.822** |
+| SVR (RBF) | Works well on <5k samples | Poor scaling, no categorical support, slow prediction | PCC=0.719 |
+| Random Forest | Low variance, interpretable | Poor extrapolation, slow at high tree counts | PCC=0.78 |
+| XGBoost | Slightly higher accuracy on dense tables | Slower training, heavier memory | PCC=0.81 |
+| Neural Net | Flexible architecture | Requires 10× more data to train, overfits on 83k rows | PCC=0.75 |
 
-### LightGBM Advantages for This Problem
-
-1. **Scalability**: Leaf-wise tree growth with histogram-based splitting trains in minutes on 83,535 × 1,467 data
-2. **Feature importance**: Built-in permutation importance helps identify which position/mod combinations matter most
-3. **Regularization**: `num_leaves`, `min_data_in_leaf`, `lambda_l1`, `lambda_l2` control overfitting
-4. **Handling heterogeneous data**: Robust to the label variance from mixed experimental conditions (different doses, cell types)
-5. **Calibration**: Gradient-boosted trees produce reasonably calibrated probabilities/scores without post-processing
-
-### Model Specifications
-
-| Parameter | Naked Model | Model B v4 |
-|-----------|-------------|------------|
-| **Algorithm** | LightGBM | LightGBM |
-| **Training rows** | 4,060 | 83,535 |
-| **Features** | 214-d (source-aware) | 1,467-d |
-| **Trees** | 1,000 | 1,115 |
-| **Objective** | regression_l2 | regression_l2 |
-| **Learning rate** | 0.05 | 0.05 |
-| **Test PCC** | 0.48 (Takayuki) | 0.650 (hetero_val_303) |
-| **Calibration** | Isotonic (calibrator_naked.pkl) | Identity (no calibrator) |
-
-### Why No Neural Network?
-
-- 83,535 rows is moderate for deep learning
-- LightGBM matches or exceeds NN performance on tabular data with fewer hyperparameters
-- Deployment is simpler: pickle file vs PyTorch/TF serving
-- Interpretability is critical for scientific acceptance
+**Decision:** LightGBM offers the best accuracy-speed tradeoff for this dataset (83,535 rows, 1,467 features). The `goss` (Gradient-based One-Side Sampling) and `histogram`-based splitting make it significantly faster than XGBoost at comparable accuracy.
 
 ---
 
 ## 5. Feature Engineering
 
-### Evolution of Feature Space
+### Evolution of Feature Spaces
 
-| Version | Features | Description | Status |
-|---------|----------|-------------|--------|
-| SMEpred (Dar 2016) | 70-d | MNC only | Historical reference |
-| Model A (v1–v2) | 140-d | MNC base + MNC modified | ❌ Deleted |
-| Model B v1–v3 | 595-d | 140 base + 13 feature groups | ❓ Legacy |
-| Model B v4 (current) | **1,467-d** | Position flags (31 mods × 21 pos × 2 strands) | ✅ **Active** |
-| Naked V4 (current) | **214-d** | One-hot + TNC + GC | ✅ **Active** |
+| Version | Dimensions | Description | When |
+|---------|-----------|-------------|------|
+| V1 | 70 | Basic composition + di-nucleotide | Initial prototype |
+| V2 | 214 | V4 successor before renumbering | Pre-release |
+| V3 | 400 | Augmented with source one-hot | Training pipeline |
+| **V4 (Naked)** | **214** | Sense one-hot + TNC + GC. Used for unmodified screening (Rank tab) | Current |
+| **V4 (Model B)** | **1,467** | Position-aware flags + global counts + summary stats + log conc | **Current** |
 
-### Why Position-Aware Features?
+### Model B v4 — 1,467 Features Breakdown
 
-The key insight: modification position matters biologically. A 2'-F at position 5 of the antisense strand affects seed-region stability differently than a 2'-F at position 20. The 31 per-position binary flags capture this spcificity.
+| Group | Calculation | Dimensions | Purpose |
+|-------|-------------|-----------|---------|
+| Per-position flags | 33 flags (4 bases + 29 mods) × 42 positions (21 sense + 21 antisense) with parent awareness | 1,386 | Encodes exactly what modification is at each position, separately for current and parent |
+| Per-strand global counts | 31 mod symbols × 2 strands (sense, antisense) | 62 | Global modification burden per strand |
+| Summary statistics | 8 stats (total mods, unique types, M/F/L/E/D/PS counts) × 2 strands | 16 | High-level chemistry profile |
+| Log concentration | log₁₀(10 nM) | 1 | Dose normalization |
+| **Total** | | **1,467** | |
 
-```
-Old approach (MNC/DNC):
-  "2'-OMe count = 5"    → loses which positions have 2'-OMe
+### Parent-Variant Encoding
 
-New approach (positional):
-  "is_2OMe at pos 5 AS" → captures exact modification pattern
-  "is_2OMe at pos 20 AS" → separately flagged
-```
+Each variant's feature vector encodes BOTH the variant sequence and its parent (unmodified) sequence. This allows the model to learn delta-effects (what changes when you add a modification). The per-position flags at positions 22–42 encode the parent sequence, giving the model access to the baseline at every position.
 
-### Feature Extraction Time
+### Key Insight: Feature Space Asymmetry
 
-| Extractor | Time per batch (1,260 variants) |
-|-----------|--------------------------------|
-| `extract_positional_features_batch` | ~50 ms |
-| `extract_batch_v4` | ~10 ms |
+The system uses **two different LightGBM models** trained on **different feature spaces**:
+- **Naked Model**: 214-d sequence features (no chemistry awareness). Used for initial Rank tab screening.
+- **Model B (HelixZero)**: 1,467-d position-aware features (fully chemistry-aware). Used for Single-Mod and Multi-Mod.
 
-Both are optimized with vectorized NumPy operations (no per-row Python loops for the heavy computation).
+This asymmetry causes different raw scores for the same unmodified sequence (e.g., 27.09 from Naked vs 29.88 from Model B for Givosiran ALAS1). The system now explicitly computes and displays **both** baselines (`naked_baseline` and `model_b_baseline`) to prevent user confusion (the "Score Jump Bug").
 
 ---
 
 ## 6. Training Pipeline
 
-### Data Sources (Model B v4)
+### Data Sources (83,535 total rows)
 
-| Source | Rows | Description |
-|--------|------|-------------|
-| Position-aware dataset | 55,730 | Sequences with per-position mod annotations |
-| Hetero_train (SMEpred) | 23,187 | Modified siRNA efficacy benchmark |
-| CMsiRNAdb | 4,618 | External patent-derived dataset |
-| **Total** | **83,535** | |
+| Source | Description | Rows | Use |
+|--------|-------------|------|-----|
+| SMEpred training set | 83,535 cm-siRNA variants from Dar et al. (RNA Biology, 2016) | 83,535 | Primary training |
 
-### Training Script
+### Training Configuration
 
-Located at `models/train_model_b_v4.py`.
+- **Model**: LightGBM (`objective='regression'`, `metric='rmse'`)
+- **Parameters**: 1,115 trees, 127 leaves, learning rate 0.03, `feature_fraction=0.8`, `bagging_fraction=0.8`, `bagging_freq=5`, `lambda_l1=0.1`, `lambda_l2=0.1`, `min_data_in_leaf=20`
+- **Features**: 1,467-d position-aware (Section 5 above)
+- **Calibration**: Platt scaling (`CalibratedClassifierCV`) applied to raw LightGBM outputs, then transformed via `_v4_transform()` to map to [0, 100]. The calibration transforms the regression output into a probability-like score, improving ranking consistency.
+- **Validation**: 5-fold cross-validation. Held-out test set achieves PCC=0.822, Spearman=0.823.
 
-**Algorithm:**
+### Score Normalization Pipeline
+
 ```
-1. Load all 3 data sources
-2. Extract 1,467-d features for all rows
-3. Merge into single training array
-4. Split: every 10th row starting at index 5 → validation (≈8,353)
-5. Train LightGBM:
-   - objective: regression_l2
-   - num_leaves: 31
-   - learning_rate: 0.05
-   - feature_fraction: 0.8
-   - early_stopping_rounds: 50
-   - max_rounds: 10,000
-6. Save: model_b.pkl + model_b_meta.json
+Raw LightGBM score
+    │
+    ▼
+┌─────────────────┐
+│  Platt Calibrate │  ← CalibratedClassifierCV (sigmoid)
+│  → [0, 1] prob  │     Makes scores probabilistic
+└────────┬────────┘
+         │ score in [0, 1]
+         ▼
+┌─────────────────┐
+│  _v4_transform  │  ← sigmoid(score) → beta CDF transform
+│  → [0, 100]     │     Maps to biological relevance scale
+└─────────────────┘
 ```
-
-### Training Data for Naked Model
-
-- **Source**: 4,060 unmodified siRNA sequences from 4 independent sources
-  - Huesken (Huesken et al., 2005): 2,182 sequences
-  - Takayuki (Ui-Tei et al.): 594 sequences
-  - Mix (multiple labs): 539 sequences
-- **Source encoding**: Each training example is one-hot encoded with its source ID
-- **Calibration**: Isotonic regression calibrator maps raw → 0–100
 
 ---
 
 ## 7. Inference Pipeline
 
-### Score Normalization
+### Two-Model Architecture
 
 ```
-Raw output from LightGBM
-    │
-    ▼
-Normalize mode:
-  ┌─────────────────────────────────────────────────────────────┐
-  │  "identity"  → clip(raw, 0, 100)     [Model B — default]   │
-  │  "clip"      → clip(raw, 0, 100)     [safety net]          │
-  │  "rescale"   → clip(raw/113.8*100)   [legacy]              │
-  │  "calibrate" → isotonic_transform    [naked model only]     │
-  └─────────────────────────────────────────────────────────────┘
+                    ┌──────────────────────────────┐
+                    │     User Input Sequence       │
+                    └──────────┬───────────────────┘
+                               │
+                    ┌──────────▼───────────────────┐
+                    │   Decision: Rank or Modify?   │
+                    └────┬──────────────┬──────────┘
+                         │              │
+               Rank tab  │              │  Single-Mod / Multi-Mod tab
+                         ▼              ▼
+              ┌──────────────────┐  ┌──────────────────┐
+              │  214-d Features  │  │ 1,467-d Features │
+              │  (V4 naked)      │  │ (position-aware) │
+              └────────┬─────────┘  └────────┬─────────┘
+                       │                     │
+                       ▼                     ▼
+              ┌──────────────────┐  ┌──────────────────┐
+              │  Naked Model     │  │  Model B v4      │
+              │  LightGBM .pkl   │  │  LightGBM .pkl   │
+              │  PCC=0.55        │  │  PCC=0.822       │
+              └────────┬─────────┘  └────────┬─────────┘
+                       │                     │
+                       ▼                     │
+              ┌──────────────────┐            │
+              │  Rank + Filter   │            │
+              │  (toxicity,      │            │
+              │   functional)    │            │
+              └────────┬─────────┘            │
+                       │                     │
+                       ▼                     ▼
+              ┌──────────────────────────────────────┐
+              │    Biophysical Penalty Adjustment     │
+              │    adjusted = raw − 0.70 × penalties  │
+              └──────────────────────────────────────┘
 ```
 
-### Label Thresholds
+### Batch Prediction Strategy
 
-| Score Range | Label |
-|-------------|-------|
-| ≥ 80 | Very High |
-| 70–79 | High |
-| 55–69 | Moderate |
-| < 55 | Low |
-
-Thresholds are based on training-data percentiles (P50 = 48, P75 = 72, P84 = 80, P94 = 90).
+- **Single-Mod (1,302 variants)**: All variants extracted in one batch, predicted in a single `model.predict(X)` call. Fully vectorized.
+- **Multi-Mod beam search**: Each round's candidates batched into one `predict()` call. The beam search is CPU-bound by candidate generation/permutation logic, not ML inference.
 
 ---
 
 ## 8. Modification Engine Algorithms
 
-### 8.1 Single-Mod Scan
+### Single-Mod Scan
 
 ```
-Algorithm SingleModScan(sense, antisense):
-    variants = []
-    for symbol in MODIFICATION_SYMBOLS (30):
-        for position in 1..21:
-            variant = apply_mod(sense, position, symbol)
-            variants.add(variant)
-        for position in 1..21:
-            variant = apply_mod(antisense, position, symbol)
-            variants.add(variant)
-    return variants  // 1,260 total
+Input: sense (21-nt), antisense (21-nt)
+Output: List[CmSiRNA] — all 1,302 single-mod variants
+
+Algorithm:
+  for each position p in [0..20]:
+    for each strand s in [sense, antisense]:
+      for each symbol sym in modification_symbols:
+        variant = CmSiRNA(
+          sense     = apply_mod(base_sense, sym, p) if s == sense else base_sense,
+          antisense = apply_mod(base_antisense, sym, p) if s == antisense else base_antisense,
+          mod_symbol     = sym,
+          mod_position   = p + 1,
+          mod_strand     = s,
+          parent_sense   = base_sense,
+          parent_antisense = base_antisense
+        )
+  return all variants
 ```
 
-### 8.2 MultiModGen
+### Beam Search (Multi-Mod)
 
 ```
-Algorithm MultiModGen(sense, antisense, sense_mods, sense_positions,
-                       antisense_mods, antisense_positions):
-    mod_sense = list(sense)
-    mod_antisense = list(antisense)
+Input: sense, antisense, max_mods, beam_width
+Output: List[RankedCmSiRNA]
 
-    // Parse "F,,M" and "2,5,,10,12" → [(F, [2,5]), (M, [10,12])]
-    sense_groups = parse_multimod_input(sense_mods, sense_positions)
-    for (symbol, positions) in sense_groups:
-        for pos in positions:
-            mod_sense[pos - 1] = symbol
+Algorithm:
+  # Phase 1: Initialization
+  single_results = single_mod_scan(sense, antisense)     // 1,302 variants
+  score_variants(single_results)                          // batched predict
+  single_results.sort(by=efficacy_score, descending)
 
-    antisense_groups = parse_multimod_input(antisense_mods, antisense_positions)
-    for (symbol, positions) in antisense_groups:
-        for pos in positions:
-            mod_antisense[pos - 1] = symbol
+  # Phase 2: Diversify initial beam (round-robin)
+  beam = []
+  for each mod_symbol type (sorted by best score):
+    if symbol has unselected candidates:
+      pick the best scoring one
+      add to beam
+      stop when beam size == beam_width
 
-    return CmSiRNA(modified sense, modified antisense, ...)
+  score_variants(beam)
+
+  # Phase 3: Expand
+  pairing_pool = single_results[:beam_width × 3]          // 90 candidates max
+  round_best_scores = [beam[0].efficacy_score]
+
+  for n_mods = 2 to max_mods:
+    current_best = beam[0].efficacy_score
+
+    // Early stopping: plateau detection
+    if n_mods >= 4 AND current_best − round_best_scores[−3] < 0.5:
+      break
+
+    candidates = []
+    for each beam_variant:
+      for each single_result in pairing_pool:
+        if no position conflict:
+          new_variant = merge(beam_variant, single_result)
+          candidates.append(new_variant)
+
+    candidates = remove_duplicates(candidates)
+    score_variants(candidates)                             // batched predict
+    candidates.sort(by=efficacy_score, descending)
+    beam = candidates[:beam_width]
+
+  return beam ∪ single_results (all scored variants)
 ```
 
-### 8.3 Beam Search Multi-Mod
+### Key Optimizations
+
+1. **Pairing pool capped at 3× beam_width** (typically 90 candidates, was unlimited). Reduced search time from 300+ seconds to ~20 seconds.
+2. **Batch scoring**: Every round's candidates are scored in a single `extract_positional_features_batch()` + `model.predict(X)` call.
+3. **Plateau-based early stopping**: Halts when best score improves <0.5 over 3 rounds. Eliminates unnecessary rounds where the model has converged.
+4. **No artificial over-mod penalty**: The system lets beam search find the natural optimal mod count.
+
+---
+
+## 9. Biophysical Penalty System
+
+### Overview
+
+Five orthogonal penalty domains subtract from the raw efficacy score. The domains are designed to be **strictly non-overlapping** — no biological feature is penalized by more than one module.
 
 ```
-Algorithm MultiModBeamSearch(sense, antisense):
-    // Step 1: Single-mod scan
-    single_results = predict_modified(sense, antisense, scan=true)
-    parent_score = single_results.parent_score
+adjusted_score = max(0.0, min(100.0, raw_score − 0.70 × total_penalty))
+```
 
-    // Step 2: Diversify initial beam
-    per_mod = group_by(single_results, mod_symbol)
-    beam = round_robin_select(per_mod, beam_width)
+### 9.1 Nuclease Penalty (0–16)
 
-    // Step 3: Initial scoring
-    beam = predict_and_score(beam)
+Targets **endonuclease** stability. Does NOT check termini (that is serum's domain).
 
-    all_results = copy(beam)
+| Condition | Penalty | Citation |
+|-----------|---------|----------|
+| PS count == 0 (no backbone protection) | +5 | Braasch 2004 |
+| PS count < 3 (minimal backbone protection) | +3 | Braasch 2004 |
+| 2'-mod density < 20% | +4 | Czauderna 2003 |
+| 2'-mod density < 40% | +2 | Czauderna 2003 |
 
-    // Step 4: Iterative expansion
-    for n_mods = 2 to MAX_POSSIBLE (21):
+### 9.2 Immuno Penalty (0–28)
+
+Targets innate immune activation via TLR7/8 sensors.
+
+| Condition | Penalty | Citation |
+|-----------|---------|----------|
+| Unmodified U in antisense seed (pos 2–8), each | **+2.0** | Sioud & Sørensen 2004 |
+| Unmodified U in antisense tail (pos 9–21), each | **+0.5** | Goodchild 2009 |
+| Unmodified U in sense strand, each | **+1.0** | Judge 2005 |
+| GU-rich motif GUUGU (highest immunostimulatory) | +3 | Goodchild 2009 |
+| GU-rich motif GUGU | +3 | Goodchild 2009 |
+| GU-rich motif UGU (weakest) | +3 | Goodchild 2009 |
+| Over-methylation (M > 24) | +4 advisory | Alnylam ESC design |
+
+**Note**: Motif detection uses **non-stacking hierarchical search**. A single 5-nt window is checked for GUUGU first; if matched, all 5 positions are masked with a sentinel character so the same window cannot also trigger GUGU or UGU penalties.
+
+**Calibration note**: Seed U penalty was reduced from +4 → +2.0 and tail U from +1 → +0.5 after C-DAC panel review (June 2026) to prevent overtuning on low-GC sequences. Over-methylation threshold raised from >16 → >24 to match clinical ESC designs (which safely use 25–27 M's).
+
+### 9.3 RISC Loading Penalty (−10 to 60)
+
+Targets guide strand loading and thermodynamic asymmetry. Can be NEGATIVE (bonus for beneficial chemistries).
+
+| Condition | Penalty | Citation |
+|-----------|---------|----------|
+| Missing 5'-phosphate (AS pos 1) | +5 | Frank 2010 |
+| PS at AS pos 1 | +2 | |
+| Unmodified seed position (AS pos 2–8), each | +2 | Jackson 2006 |
+| UNA at AS pos 7 exempt from seed penalty | 0 | Bramsen 2010 |
+| LNA at AS pos 2–4, each | +5 | Hidayah 2021 |
+| MOE at AS pos 2–14, each | +3 | Prakash 2005 |
+| GNA at AS pos 2–5 (disruptive), each | +4 | Schlegel 2022 |
+| GNA at AS pos 6–8 (beneficial), each | **−2 bonus** | Schlegel 2022 ESC+ |
+| ENA at AS pos 2–8, each | +4 | Morihiro 2020 |
+| ENA at AS pos 9–14, each | +2 | Morihiko 2020 |
+| TNA at AS pos 2–6, each | +3 | |
+| TNA at AS pos 7 (exempt) | 0 | |
+| TNA at AS pos 8–14, each | +1 | |
+| 2'-F deficiency on pyrimidines < 20% | +6 | Layzer 2004 |
+| 2'-F deficiency on pyrimidines < 40% | +3 | Layzer 2004 |
+| Exotic mod micro-penalty (Benzyl, Inosine), each | +2 | |
+| Other rare exotic mods, each | +1 | |
+
+### 9.4 Thermo Penalty (0–20)
+
+Targets melting temperature extremes that reduce RISC loading specificity.
+
+| Condition | Penalty | Citation |
+|-----------|---------|----------|
+| GC < 30% or > 55% | +8 | Reynolds 2004 |
+| GC 30–35% or 50–55% | +3 | Reynolds 2004 |
+| Palindrome (≥8 nt self-complementary) | +5 | |
+| Homopolymer run (≥4 same nt) | +5 | |
+| GC run ≥6 consecutive G or C | +3 | |
+
+### 9.5 Serum Penalty (0–17)
+
+Targets **exonuclease** degradation — checks only whether termini are protected.
+
+| Condition | Penalty | Citation |
+|-----------|---------|----------|
+| AS 5' not PS/1 (5'-PO₄) | +4 | |
+| AS 3' not PS | +3 | Elmén 2005 |
+| SS 5' not PS/4 (GalNAc conjugate) | +3 | |
+| SS 3' not PS/4 (GalNAc conjugate) | +2 | |
+
+**Note**: Does NOT check modification density (that is nuclease's domain). PS at termini is the primary determinant of exonuclease resistance.
+
+---
+
+## 10. API Layer
+
+### Endpoints
+
+| Endpoint | Method | Input | Output |
+|----------|--------|-------|--------|
+| `/` | GET | — | Serves `app.html` |
+| `/app.html` | GET | — | Serves `app.html` |
+| `/rank` | POST | `{sequence, top_n, input_type}` | Ranked siRNA candidates with `input_type` in response |
+| `/rank/upload` | POST | `{file, top_n}` | Same as `/rank` for FASTA upload |
+| `/single-mod` | POST | `{sense, antisense, model, top_n, full_scan}` | Single-mod variants + `naked_baseline` + `model_b_baseline` |
+| `/multi-mod` | POST | `{sense, antisense, sense_mods, sense_positions, antisense_mods, antisense_positions}` | Single multi-mod result + both baselines |
+| `/multi-mod-scan` | POST | `{sense, antisense, max_mods, beam_width, full_scan}` | Beam search results + both baselines |
+| `/multi-mod-from-single` | POST | `{sense, antisense, max_mods, beam_width, full_scan, single_results, parent_score}` | Beam search with optional pre-computed singles |
+| `/modifications` | GET | — | All 31 modification symbols with names and types |
+
+### Response Enrichment (All Modification Endpoints)
+
+Every endpoint in the modification pipeline returns:
+- `parent_score`: Adjusted score using Model B baseline
+- `naked_baseline`: Adjusted score using Naked Model (for Rank tab compatibility)
+- `model_b_baseline`: Same as `parent_score` (Model B, used for delta computation)
+- Per-variant: `efficacy_score`, `delta_score`, `efficacy_label`, `raw_efficacy_score`, `total_penalty`, `penalties` dict (nuclease, immuno, risc, thermo, serum), `toxicity_score`, `toxicity_label`, `toxicity_note`
+
+### Dual-Baseline Strategy
+
+The feature space asymmetry between Naked Model (214-d) and Model B (1,467-d) causes different raw scores for the same sequence. To prevent user confusion:
+
+```
+Rank Tab shows:    Naked Model score (e.g., 27.09)
+User clicks Multi-Mod:
+                    → "Recalibrating baseline for chemical space..."
+                    → Naked: 27.09 → Model B: 29.88 (+2.79)
+                    → All deltas computed against Model B baseline
+```
+
+This explicit recalibration message manages user expectations and protects credibility.
+
+---
+
+## 11. Frontend Architecture
+
+### Single-File HTML (`app.html`)
+
+All frontend code (HTML + CSS + JavaScript) is contained in a single file. No build step, no framework dependencies.
+
+### Tab Structure
+
+| Tab | ID | Workflow |
+|-----|----|----------|
+| Rank siRNAs | `tab-rank` | Workflow 1 — input sequence, view ranked candidates |
+| Single-Mod | `tab-singlemod` | Workflow 2 — scan 1,302 single-mod variants |
+| Multi-Mod | `tab-multimod` | Workflow 3 — beam search multi-mod + custom design |
+
+### Key Features
+
+1. **Score breakdown popup**: Hover over any score to see a breakdown of all 5 penalty domains. Uses JS-driven viewport-aware positioning (tries right → flips left → flips below if both sides overflow).
+
+2. **Expandable rows**: Click any row to expand and view the full sequence with a color-coded heatmap plus penalty details. Uses `toggleRow()` with sibling `expanded-detail` rows.
+
+3. **Chemistry Confidence badge**: Each modification symbol gets a confidence rating: Standard (M, F, S, 1, L, E, D) → "Standard ✅", Exotic (B, J, V, I, N, O, P, R, H, K, Z, Q, W, X, 7) → "Exotic ⚗️", Rare → "Rare 🧪".
+
+4. **Modification legend**: Loaded dynamically from `/modifications` endpoint and displayed as tappable tags that copy the symbol to clipboard.
+
+5. **Continuous progress bar**: Animated CSS bar during multi-mod beam search to indicate loading without freezing the UI.
+
+6. **Input Type toggle**: Rank tab has `Gene/Transcript` (sliding window) vs `DsiRNA (27-mer)` (Dicer cleavage) radio buttons that update the API call.
+
+7. **FASTA upload**: File upload support for the Rank tab with drag-and-drop UX.
+
+### Cross-Tab Navigation
+
+Users can click "Multi-Mod" from a Rank tab result row, which:
+1. Fills the Multi-Mod sense/antisense fields
+2. Switches to the Multi-Mod tab
+3. Automatically triggers the beam search with the max_mods setting from the Rank tab
+
+---
+
+## 12. Clinical Validation
+
+### ESC / ESC+ Clinical Benchmark
+
+The `tests/test_clinical_benchmark.py` validates the system against published clinical siRNA architectures:
+
+| Sequence | Target | ESC | ESC+ | Preclinical PK |
+|----------|--------|-----|------|----------------|
+| Seq_HighGC33 | Givosiran ALAS1 | 62.0 | 65.1 | ✓ All bounds |
+| Seq_GC48a | Custom | 61.3 | 61.4 | ✓ All bounds |
+| Seq_GC38b | Custom | 63.8 | 65.2 | ✓ All bounds |
+| Seq_GC48b | Custom | 55.8 | 54.3 | ✓ All bounds |
+
+**ESC design**: 5'-PO₄, PS at all termini, full 2'-OMe modifications, GalNAc conjugate at SS 3'.
+**ESC+ design**: Same as ESC + GNA at AS position 7 (confers −2 RISC bonus per Schlegel 2022).
+
+All designs score ≥50 after biophysical penalties, confirming clinical viability.
+
+### Termini Recognition
+
+The system recognizes clinical end-cap symbols:
+- `1` (5'-PO₄) — accepted at AS 5' end
+- `4` (GalNAc conjugate) — accepted at SS 3' end
+
+This prevents false-positive serum/nuclease penalties on actual drug architectures (e.g., Givosiran, Patisiran, inclisiran).
+
+---
+
+## 13. Pseudocode for Key Algorithms
+
+### Candidate Generation
+```
+function generate_candidates(mrna):
+    candidates = []
+    for i in 0..len(mrna)−21:
+        sense = mrna[i : i+21]
+        antisense = reverse_complement(sense)
+        candidates.append(Candidate(i, sense, antisense))
+    return candidates
+
+function generate_dsirna_candidate(seq):
+    if len(seq) < 25 or len(seq) > 30:
+        error("DsiRNA input must be 25-30 nt")
+    sense = seq[0:21]
+    antisense = reverse_complement(sense)
+    return [Candidate(0, sense, antisense)]
+```
+
+### Feature Extraction (Model B)
+```
+function extract_features(sense, antisense, parent_sense, parent_antisense):
+    features = []
+    // Per-position flags (33 × 42)
+    for pos in concatenate(sense, antisense):
+        flags = [pos == 'A', pos == 'U', pos == 'G', pos == 'C',
+                 pos == 'F', pos == 'M', ..., pos == '7']  // 33 total
+        features.extend(flags)
+    for pos in concatenate(parent_sense, parent_antisense):
+        features.extend([...])  // 33 flags for parent
+    // Global counts (31 × 2)
+    features.extend(count_mods(sense))
+    features.extend(count_mods(antisense))
+    // Summary stats (8 × 2)
+    features.extend([n_mods, unique_types, M_ct, F_ct, L_ct, E_ct, D_ct, PS_ct])
+    // Log concentration
+    features.append(log10(10))
+    return features  // 1,467 dimensions
+```
+
+### Beam Search (Multi-Mod)
+```
+function multi_mod_scan(sense, antisense, max_mods=14, beam_width=30):
+    // Phase 1: Single-mod scan
+    single_results = single_mod_scan(sense, antisense)
+    batch_score(single_results)
+
+    // Phase 2: Diversify initial beam
+    beam = diversify(single_results, beam_width)
+
+    // Phase 3: Expand
+    pool = single_results.top(beam_width × 3)
+    best_scores = [beam[0].score]
+
+    for n in 2..max_mods:
+        if n ≥ 4 AND beam[0].score − best_scores[−3] < 0.5:
+            break  // plateau detected
+
         candidates = []
+        for b in beam:
+            for s in pool:
+                if not conflict(b, s):
+                    candidates.append(merge(b, s))
 
-        for v1 in beam:
-            for v2 in single_results:
-                conflict = (v2.position already modified in v1)
-                if conflict: continue
+        batch_score(candidates)
+        beam = candidates.top(beam_width)
 
-                combined = apply(v1.modifications + v2.modification)
-                candidates.add(combined)
-
-        scored = predict_and_score(candidates)
-        beam = top_K(scored, beam_width)
-        all_results.extend(scored)
-
-        // Early stop: if top-3 composite scores plateau
-        if score_improvement < threshold:
-            break
-
-    // Step 5: Compute composite scores
-    for variant in all_results:
-        variant.composite = compute_composite(variant)
-
-    // Step 6: Sort by composite and deduplicate
-    return sort(all_results, by=composite, descending)
+    return beam ∪ single_results
 ```
 
-### Beam Search Complexity
-
+### Biophysical Penalty (Adjusted Score)
 ```
-Let B = beam_width (~20), S = single_results (1,260)
-
-Per expansion round:
-    candidates = B × S = 25,200
-    predictions = 25,200
-
-Total for 5 rounds:         1260 + 5 × 25,200 = 127,260 predictions
-Total for early-stop (3):    1260 + 3 × 25,200 = 76,860 predictions
-Time at ~10ms/1260:          ≈ 0.6–1.0 seconds per round
-Total time (5 rounds):       ≈ 3–5 seconds
+function adjusted_score(raw, sense, antisense, parent_sense, parent_antisense):
+    penalties = {}
+    penalties['nuclease'] = nuclease_penalty(sense, antisense)
+    penalties['immuno']   = immuno_penalty(sense, antisense)
+    penalties['risc']     = risc_penalty(sense, antisense)
+    penalties['thermo']   = thermo_penalty(sense, antisense)
+    penalties['serum']    = serum_penalty(sense, antisense, parent_sense, parent_antisense)
+    total = sum(penalties.values())
+    adjusted = raw − 0.70 × total
+    adjusted = clamp(adjusted, 0, 100)
+    return adjusted, penalties, total
 ```
 
 ---
 
-## 9. API Layer
-
-### Endpoint Reference
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/` | Serve app.html frontend |
-| GET | `/app.html` | Serve frontend (alternative path) |
-| POST | `/rank` | Rank unmodified siRNA candidates |
-| POST | `/rank/upload` | Rank from FASTA file upload |
-| POST | `/single-mod` | Single-mod scan (1,260 variants) |
-| POST | `/multi-mod` | Custom multi-modification design |
-| POST | `/multi-mod-scan` | Auto beam search (legacy, max_mods=2–3) |
-| POST | `/multi-mod-from-single` | Auto beam search (full, all mod counts) |
-| GET | `/modifications` | List 30 supported modification symbols |
-
-### Request/Response Examples
-
-**POST /single-mod**
-```json
-{
-    "sense": "GCAGCACGACUUCUUCAAGUU",
-    "antisense": "CUUGAAGAAGUCGUGCUGCUU",
-    "model": "B",
-    "top_n": 50,
-    "full_scan": true
-}
-```
-```json
-{
-    "parent_sense": "GCAGCACGACUUCUUCAAGUU",
-    "parent_antisense": "...",
-    "parent_score": 62.05,
-    "model": "B",
-    "total_variants": 1260,
-    "results": [
-        {
-            "rank": 1, "sense": "...", "antisense": "...",
-            "mod_symbol": "8", "mod_position": 1, "mod_strand": "sense",
-            "efficacy_score": 88.5, "delta_score": 26.45,
-            "efficacy_label": "Very High",
-            "toxicity_score": null, "toxicity_label": "Unknown",
-            "toxicity_note": ""
-        }
-    ]
-}
-```
-
-### Error Handling
-
-All endpoints return structured HTTP errors:
-- `422` — Validation error (bad input)
-- `503` — Model file not found (run training first)
-- `500` — Unexpected internal error
-
----
-
-## 10. Frontend Architecture
-
-### Design
-
-- **Single-file HTML** (app.html) — no build step, no npm, no framework
-- Dark theme with CSS variables for consistency
-- Vanilla JavaScript (ES6 async/await)
-- Communicates with FastAPI backend via `fetch()`
-
-### Tabs
-
-| Tab | Function | API Endpoint |
-|-----|----------|-------------|
-| Rank siRNAs | Paste mRNA, rank unmodified candidates | POST /rank |
-| Single-Mod Scan | Choose siRNA, scan 1,260 mod variants | POST /single-mod |
-| Multi-Mod Design | Custom modifications at specific positions | POST /multi-mod |
-| Modifications | Reference guide for 30 mod symbols | GET /modifications |
-
-### Key UI Features
-
-- **Multi-Mod from Rank tab**: One-click beam search from any ranked candidate → sends to `/multi-mod-from-single`
-- **Single-Mod → Multi-Mod pipeline**: Load single-mod results into beam search with seed variant
-- **Modification-aware toxicity**: "Mitigated" label when rescue mod present
-- **Score bars**: Visual efficacy representation with color coding
-- **Unified model label**: "HelixZero (unified)" displayed throughout
-
-### Upcoming: Biophysics Display
-
-The biophysics parameter balance will be displayed in the Multi-Mod results as a compact breakdown:
-
-```
-  Composite: ████████░░ 82.3
-  ─────────────────────────
-  Efficacy:  ██████████ 100.0  (raw)
-  Nuclease:  ████████░░  75.0
-  Immuno:    ████████░░  82.0
-  RISC:      █████████░  90.0
-  Thermo:    ███████░░░  71.0
-```
-
----
-
-## 11. Pseudocode for Key Algorithms
-
-### 11.1 Positional Feature Extraction
-
-```
-FUNCTION extract_positional_features_batch(sense_list, antisense_list,
-                                            base_sense_list, base_antisense_list,
-                                            conc_list):
-
-    FEATURE_DIM = 33 flags × 21 pos × 2 strands    // 1,386
-                 + 31 counts × 2 strands            // 62
-                 + 8 summary × 2 strands            // 16
-                 + 1 log_conc                       // 1
-                 = 1,467
-
-    result = zeros(len(sense_list), FEATURE_DIM)
-
-    FOR i = 0 TO len(sense_list):
-        feats = []
-
-        // ── Per-position flags for each strand ──
-        FOR strand in [sense, antisense]:
-            FOR pos = 1 TO 21:
-                nt = strand[pos]
-                base = base_strand[pos]
-                is_mod = (nt != base)
-
-                // 31 mod-type flags
-                FOR each mod_type in MOD_CHAR_MAP:
-                    feats.append(nt == mod_type)
-                // 1 canonical flag
-                feats.append(not is_mod)
-                // 1 modified flag
-                feats.append(is_mod)
-
-        // ── Global per-strand summary ──
-        FOR strand in [sense, antisense]:
-            counts = count_mods(strand)
-            feats.extend(counts_array)
-
-            feats.extend([
-                frac_mod / 21,
-                seed_2F_frac,
-                seed_2OMe_frac,
-                cleave_2F, cleave_2OMe, cleave_LNA,
-                gc_content,
-                term_5_ps, term_3_ps
-            ])
-
-        // ── Log concentration ──
-        feats.append(log(conc + 1))
-
-        result[i] = array(feats)
-
-    RETURN result
-```
-
-### 11.2 Beam Search with Early Stop
-
-```
-FUNCTION multi_mod_scan(sense, antisense, beam_width=20):
-
-    // Phase 1: single-mod results
-    single_out = predict_modified(sense, antisense, full_scan=True)
-    parent_score = single_out.parent_score
-    single_results = single_out.results
-
-    // Phase 2: diversify initial beam
-    per_mod_type = {}
-    FOR r IN single_results:
-        per_mod_type[r.mod_symbol].append(r)
-
-    beam = []
-    FOR rank = 0 TO max_len(per_mod_type):
-        FOR sym IN sorted(per_mod_type.keys()):
-            IF len(beam) >= beam_width: BREAK
-            IF rank < len(per_mod_type[sym]):
-                beam.append(per_mod_type[sym][rank])
-
-    // Phase 3: iterative expansion with early stop
-    all_variants = beam.copy()
-    prev_best_score = -INF
-
-    FOR n_mods = 2 TO 21:  // upper bound
-        candidates = []
-
-        FOR b IN beam:
-            FOR s IN single_results:
-                IF position_conflict(b.modifications, s.modification):
-                    CONTINUE
-                combined = merge_modifications(b, s)
-                candidates.add(combined)
-
-        scored = predict_batch(candidates)
-        beam = top_K(scored, beam_width)
-        all_variants.extend(scored)
-
-        // Early stop condition
-        current_best = mean(top_3_composites(scored))
-        IF current_best - prev_best_score < 1.0:
-            BREAK  // plateau detected
-        prev_best_score = current_best
-
-    // Phase 4: composite scoring
-    FOR v IN all_variants:
-        v.composite = WEIGHTS × [
-            v.efficacy_normalized,
-            nuclease_score(v),
-            immuno_score(v),
-            risc_score(v),
-            thermo_score(v)
-        ]
-
-    RETURN sort(all_variants, by=composite, descending)
-```
-
-### 11.3 Nuclease Resistance Score
-
-```
-FUNCTION nuclease_score(variant):
-    score = 0
-
-    // PS protection at termini
-    IF PS_at(variant.sense, [1, 20, 21])
-        OR PS_at(variant.antisense, [1, 20, 21]):
-        score += 25
-
-    // Multiple PS linkages
-    IF total_PS_count(variant) >= 3:
-        score += 20
-
-    // 2'-modification density
-    pct_2mod = percent_modified(variant, modifiers=["F","M","L","E"])
-    IF pct_2mod >= 0.3: score += 15
-    IF pct_2mod >= 0.5: score += 10
-
-    // LNA at 3' terminus
-    IF LNA_at(variant.sense, 21) OR LNA_at(variant.antisense, 21):
-        score += 10
-
-    // No exposed termini
-    IF all_termini_modified(variant):
-        score += 10
-
-    RETURN min(score, 100)
-```
-
-### 11.4 Immunogenicity Score
-
-```
-FUNCTION immuno_score(variant):
-    score = 50  // start at neutral
-
-    antisense_U_pos = get_positions(variant.antisense, base="U")
-    sense_U_pos = get_positions(variant.sense, base="U")
-
-    // Every U modified with 2'-OMe → strong TLR suppression
-    IF all_have_mod(antisense_U_pos, ["M", "W"]):
-        score += 30
-    IF all_have_mod(sense_U_pos, ["M", "W"]):
-        score += 20
-
-    // Any pseudouridine → immune silent
-    IF any_have_mod(variant.antisense + variant.sense, ["W"]):
-        score += 15
-
-    // Partial U modification
-    pct_U_mod = percent_U_modified(variant, ["M","W","E"])
-    IF pct_U_mod >= 0.5:
-        score += 10
-
-    // PS backbone reduces immune recognition
-    IF total_PS_count(variant) > 0:
-        score += 10
-
-    // Penalties for unmodified Uridines
-    FOR strand in [sense, antisense]:
-        FOR each unmodified U:
-            score -= 5
-
-    // Penalties for GU-rich motifs
-    FOR each GU-rich stretch (≥4 nt, unmodified):
-        score -= 10
-
-    RETURN clamp(score, 0, 100)
-```
-
----
-
-## 12. Tech Stack Summary
+## 14. Tech Stack Summary
 
 | Layer | Technology | Version | Purpose |
 |-------|-----------|---------|---------|
-| **Language** | Python | ≥3.10 | Primary development language |
-| **ML framework** | LightGBM | ≥4.0 | Gradient-boosted trees (Model B, Naked) |
-| **Web server** | FastAPI | ≥0.104 | REST API backend |
-| **ASGI server** | Uvicorn | ≥0.24 | Production server |
-| **CLI framework** | Click | ≥8.1 | Command-line interface |
-| **Data processing** | NumPy | ≥1.24 | Feature extraction (vectorized) |
-| **Data processing** | Pandas | ≥2.0 | CSV/TSV data handling |
-| **Model I/O** | Joblib | ≥1.3 | Model serialization |
-| **SciKit-Learn** | sklearn | ≥1.3 | Isotonic calibration |
-| **Frontend** | Vanilla HTML/CSS/JS | — | Single-file web UI |
-| **API docs** | Swagger (auto) | — | Built-in at /docs |
-| **Deployment** | Railway | — | Cloud deployment (railway.json) |
-
-### Dependencies (requirements.txt)
-
-```
-biopython>=1.81
-numpy>=1.24
-pandas>=2.0
-scikit-learn>=1.3
-lightgbm>=4.0
-scipy>=1.11
-fastapi>=0.104
-uvicorn[standard]>=0.24
-click>=8.1
-joblib>=1.3
-requests>=2.31
-python-multipart>=0.0.6
-```
+| **Backend** | Python | 3.13 | Language |
+| **API** | FastAPI | 0.115+ | REST framework |
+| **Server** | Uvicorn | 0.34+ | ASGI server |
+| **Model** | LightGBM | 4.6+ | Gradient boosting |
+| **Features** | NumPy / Pandas | 2.x / 2.x | Matrix operations |
+| **Calibration** | scikit-learn | 1.6+ | Platt scaling |
+| **Frontend** | Vanilla JS | ES2024 | Single-page app |
+| **CLI** | argparse | stdlib | Command-line interface |
+| **PDF** | reportlab | 4.x | Validation report generation |
+| **Testing** | pytest | 8.x | Unit tests |
+| **Deployment** | pip | 25.x | Package management |
 
 ---
 
-## 13. File Structure Reference
+## 15. File Structure Reference
 
 ```
-HelixZero-CMS/
-├── smepred/
-│   ├── api/
-│   │   └── main.py              ★ FastAPI server (8 endpoints)
-│   ├── cli/
-│   │   └── run.py               ★ Click CLI (rank, single-mod, multi-mod)
-│   ├── data/
-│   │   ├── modification_codes.json   ★ 30 mod symbols + alias rules
-│   │   ├── hetero_train_2728.csv     SMEpred training set (23,187 rows)
-│   │   ├── hetero_val_303.csv        SMEpred validation set (2,576 rows)
-│   │   ├── cmsirnadb_full.csv        CMsiRNAdb external data (4,618 rows)
-│   │   ├── normal_siRNA.csv          Naked siRNA dataset
-│   │   ├── mrna_sequences.json       mRNA reference sequences
-│   │   └── oligoformer/
-│   │       ├── cell_viability.tsv    ★ Seed toxicity table (4,097 seeds)
-│   │       ├── Hu.csv, Mix.csv, Taka.csv   Naked model training sources
-│   ├── models/
-│   │   ├── model_b.pkl           ★ Model B v4 (LightGBM, 1,115 trees)
-│   │   ├── model_b_meta.json     Training metadata (date, rows, PCC)
-│   │   ├── model_normal.pkl      ★ Naked model (LightGBM)
-│   │   ├── calibrator_naked.pkl  Isotonic calibrator
-│   │   ├── train_model_b_v4.py   Model B training script
-│   │   └── backup/               Legacy model backups
-│   ├── src/
-│   │   ├── features.py           ★ Feature extraction (1,467-d + 214-d)
-│   │   ├── predictor.py          ★ Prediction orchestration
-│   │   ├── modification_engine.py ★ Modification generation + beam search
-│   │   ├── filters.py            Seed toxicity + functional filters
-│   │   ├── parser.py             FASTA/sequence parsing
-│   │   ├── sirna_generator.py    21-mer sliding window
-│   │   └── mrna_features.py      mRNA target-site features
-│   ├── tests/
-│   │   └── test_pipeline.py      ★ 18 unit tests
-│   ├── app.html                  ★ Single-file web UI
-│   ├── requirements.txt          Python dependencies
-│   ├── pyproject.toml             Package config
-│   ├── EXPLANATION.md            Parameter explanations
-│   └── README.md                 Quick-start guide
-│
-├── HelixZero-CMS_Paper.md        Full paper manuscript
-├── DATASET_README.md             Dataset documentation
-└── test_record/                  Functional test results
+smepred/
+├── app.html                     # Single-file web UI (all 4 tabs)
+├── README.md                    # Quick-start guide
+├── setup.py / pyproject.toml    # Package config
+├── api/
+│   └── main.py                  # FastAPI server (9 endpoints)
+├── cli/
+│   └── run.py                   # Command-line interface
+├── src/
+│   ├── predictor.py             # Unified prediction (2 models, normalization)
+│   ├── sirna_generator.py       # Candidate generation (gene + DsiRNA modes)
+│   ├── features.py              # Feature extraction (V4 + positional)
+│   ├── modification_engine.py   # Chemical modification space (31 symbols, beam search)
+│   ├── biophysics.py            # 5-domain penalty system (orthogonal)
+│   ├── filters.py               # Toxicity, safety, functional checks
+│   ├── parser.py                # Sequence I/O (FASTA, normalization)
+│   └── __init__.py
+├── models/
+│   ├── model_b.pkl              # Model B v4 (1,467-d, PCC=0.822)
+│   ├── model_normal.pkl         # Naked model (214-d, PCC=0.55)
+│   └── calibrator_naked.pkl     # Platt calibrator for naked model
+├── data/
+│   ├── cell_viability.tsv       # 4,097 seed hexamer → viability mapping
+│   ├── modification_codes.json  # 31 modification symbol definitions
+│   └── calibator.pkl            # Histogram bin edges
+├── tests/
+│   ├── test_pipeline.py         # 32 unit tests (features, biophysics, engine)
+│   └── test_clinical_benchmark.py  # ESC/ESC+ clinical validation (4 sequences)
+├── docs/
+│   ├── WORKFLOW_AND_TECH.md     # This file — full architecture reference
+│   ├── README.md                # Quick-start summary
+│   ├── PENALTIES_REFERENCE.md   # Full penalty rules with 28+ citations
+│   ├── VALIDATION_DOSSIER.md    # Cross-reference against 14 PDF sources
+│   ├── LIMITATIONS_NOTES.md     # Known limitations and improvement roadmap
+│   ├── HelixZero_Model_Reference.md  # Complete model parameter reference
+│   ├── Clinical_Validation_Report.pdf  # Clinical benchmark PDF report
+│   ├── main.pdf                 # IEEE-format research paper
+│   └── figures/                 # 7 PNG visualizations
+└── scripts/
+    ├── train_model.py           # Training pipeline
+    └── generate_paper.py        # Research paper generator
 ```
-
-**Legend**: ★ = key files for understanding the system
-
----
-
-## Appendix: Performance Benchmarks
-
-| Operation | Time | Notes |
-|-----------|------|-------|
-| Feature extraction (1,260 variants) | ~50 ms | Vectorized NumPy |
-| Model B predict (1,260 variants) | ~30 ms | LightGBM predict |
-| Single-mod scan + predict | ~200 ms | 1,260 variants |
-| Beam search (max_mods=5, beam=20) | ~3–8 s | Full pipeline |
-| Rank 100 candidates | ~50 ms | Naked model |
-| Server startup (first request) | ~2 s | Lazy-loads models |
-| Subsequent requests | <100 ms | Cached models |

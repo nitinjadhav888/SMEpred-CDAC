@@ -378,7 +378,17 @@ def multi_mod_scan(
     all_scored = list(beam)
 
     # Beam expansion for multi-mod
+    # Use only the top scoring single-results for pairing to keep search fast
+    pairing_pool = sorted(single_results, key=lambda r: r.efficacy_score, reverse=True)[:beam_width * 3]
+    round_best_scores = [beam[0].efficacy_score if beam else 0]
     for n_mods in range(2, max_mods + 1):
+        current_best = beam[0].efficacy_score if beam else 0
+        # Early stopping: stop if the best score hasn't improved by >=0.5
+        # compared to 3 rounds ago (plateau detection). This lets the search
+        # explore freely to its natural peak without capping mod count.
+        if n_mods >= 4 and current_best - round_best_scores[-3] < 0.5:
+            break
+        round_best_scores.append(current_best)
         candidates = []
 
         def mod_key(v) -> tuple:
@@ -390,7 +400,7 @@ def multi_mod_scan(
 
         seen = set()
         for v1 in beam:
-            for v2 in single_results:
+            for v2 in pairing_pool:
                 k1 = mod_key(v1)
                 k2 = mod_key(v2)
                 pair = tuple(sorted([k1, k2]))

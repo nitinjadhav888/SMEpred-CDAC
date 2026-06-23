@@ -68,6 +68,7 @@ app.add_middleware(
 class RankRequest(BaseModel):
     sequence: str = Field(..., description="mRNA or gene sequence (plain or FASTA format)")
     top_n: int    = Field(20, description="Number of top candidates to return (0 = all)")
+    input_type: str = Field("gene", description="'gene' (sliding window) or 'dsirna' (Dicer cleavage)")
 
 
 class SingleModRequest(BaseModel):
@@ -112,10 +113,11 @@ def rank_endpoint(req: RankRequest):
     """
     try:
         top = req.top_n if req.top_n > 0 else None
-        results = rank_by_naked_score(req.sequence, top_n=top)
+        results = rank_by_naked_score(req.sequence, top_n=top, input_type=req.input_type)
 
         return {
             "total_candidates": len(results),
+            "input_type": req.input_type,
             "results": [r.to_dict() for r in results],
         }
     except FileNotFoundError as e:
@@ -162,6 +164,8 @@ def single_mod_endpoint(req: SingleModRequest):
         )
         results = out["results"]
         parent_score = out["parent_score"]
+        model_b_baseline = out.get("model_b_baseline", parent_score)
+        naked_baseline = out.get("naked_baseline", parent_score)
         top = results[:req.top_n] if req.top_n > 0 else results
         # Parent seed toxicity (shared by all variants of this parent)
         from src.filters import toxicity_score, toxicity_label, seed_of_antisense
@@ -171,6 +175,8 @@ def single_mod_endpoint(req: SingleModRequest):
             "parent_sense":     req.sense,
             "parent_antisense": req.antisense,
             "parent_score":     parent_score,
+            "model_b_baseline": model_b_baseline,
+            "naked_baseline":   naked_baseline,
             "model":            req.model,
             "total_variants":   len(results),
             "full_scan":        req.full_scan,
@@ -203,6 +209,8 @@ def multi_mod_endpoint(req: MultiModRequest):
         )
         results = out["results"]
         parent_score = out["parent_score"]
+        model_b_baseline = out.get("model_b_baseline", parent_score)
+        naked_baseline = out.get("naked_baseline", parent_score)
         if not results:
             raise HTTPException(status_code=500, detail="No result generated.")
         r = results[0]
@@ -210,6 +218,8 @@ def multi_mod_endpoint(req: MultiModRequest):
             "parent_sense":     req.sense,
             "parent_antisense": req.antisense,
             "parent_score":     parent_score,
+            "model_b_baseline": model_b_baseline,
+            "naked_baseline":   naked_baseline,
             "model":            req.model,
             "result":           r.to_dict(),
         }
@@ -249,13 +259,22 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
         from src.predictor import _predict_naked, _normalize_scores
         from src.features import extract_batch_v4
 
-        # Get parent score (naked model for consistency)
+        # Get parent score (naked model for display)
         from src.biophysics import adjusted_efficacy_score
         X_parent = extract_batch_v4([req.sense], [req.antisense])
         raw_naked = _predict_naked(X_parent)
         raw_parent = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
-        parent_adjusted, _, _ = adjusted_efficacy_score(raw_parent, req.sense, req.antisense, req.sense, req.antisense)
-        parent_score = round(parent_adjusted, 2)
+        raw_naked_adj, _, _ = adjusted_efficacy_score(raw_parent, req.sense, req.antisense, req.sense, req.antisense)
+        naked_baseline = round(raw_naked_adj, 2)
+        # Also compute Model B baseline (different feature space - fair comparison)
+        from src.features import extract_positional_features_batch
+        from src.predictor import _get_model
+        X_parent_b = extract_positional_features_batch([req.sense], [req.antisense], [req.sense], [req.antisense])
+        model_b = _get_model("B")
+        raw_b = float(model_b.predict(X_parent_b)[0])
+        model_b_adj, _, _ = adjusted_efficacy_score(raw_b, req.sense, req.antisense, req.sense, req.antisense)
+        parent_score = round(model_b_adj, 2)
+        model_b_baseline = round(model_b_adj, 2)
 
         # Run beam search
         variants = multi_mod_scan(
@@ -270,6 +289,9 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
         # Format results (already biophysically adjusted in score_variants)
         results = []
         for i, v in enumerate(variants):
+            p = getattr(v, 'penalties', None) or {}
+            total_pen = sum(p.values())
+            raw_score = round(v.efficacy_score + 0.70 * total_pen, 2)
             entry = {
                 "rank": i + 1,
                 "sense": v.sense,
@@ -278,19 +300,21 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
                 "mod_position": v.mod_position,
                 "mod_strand": v.mod_strand,
                 "mod_positions": v.mod_positions or str(v.mod_position),
+                "raw_efficacy_score": raw_score,
                 "efficacy_score": round(v.efficacy_score, 2),
+                "total_penalty": round(total_pen, 1),
                 "delta_score": round(v.delta_score, 2),
                 "efficacy_label": _efficacy_label(v.efficacy_score),
+                "penalties": {k: round(v, 1) for k, v in p.items()},
             }
-            p = getattr(v, 'penalties', None)
-            if p is not None:
-                entry["penalties"] = {k: round(v, 1) for k, v in p.items()}
             results.append(entry)
 
         return {
             "parent_sense": req.sense,
             "parent_antisense": req.antisense,
             "parent_score": parent_score,
+            "model_b_baseline": model_b_baseline,
+            "naked_baseline": naked_baseline,
             "model": req.model,
             "total_variants": len(results),
             "results": results,
@@ -360,8 +384,22 @@ def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
             raw = float(_normalize_scores(_predict_naked(X_parent), calibrator_key=calibrator_key, mode=req.normalize_mode)[0])
             parent_adj, _, _ = adjusted_efficacy_score(raw, req.sense, req.antisense, req.sense, req.antisense)
             parent_score = round(parent_adj, 2)
+            naked_baseline = round(parent_adj, 2)
         else:
             parent_score = req.parent_score
+            from src.biophysics import adjusted_efficacy_score
+            naked_adj, _, _ = adjusted_efficacy_score(parent_score, req.sense, req.antisense, req.sense, req.antisense)
+            naked_baseline = round(naked_adj, 2)
+
+        # Compute Model B baseline for fair multi-mod comparison
+        from src.features import extract_positional_features_batch
+        from src.predictor import _get_model
+        X_parent_b = extract_positional_features_batch([req.sense], [req.antisense], [req.sense], [req.antisense])
+        mb = _get_model("B")
+        raw_b = float(mb.predict(X_parent_b)[0])
+        # Model B output is already normalized (mode=identity)
+        mb_adj, _, _ = adjusted_efficacy_score(raw_b, req.sense, req.antisense, req.sense, req.antisense)
+        model_b_baseline = round(mb_adj, 2)
 
         variants = multi_mod_scan(
             req.sense,
@@ -379,6 +417,9 @@ def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
 
         results = []
         for i, v in enumerate(variants):
+            p = getattr(v, 'penalties', None) or {}
+            total_pen = sum(p.values())
+            raw_score = round(v.efficacy_score + 0.70 * total_pen, 2)
             entry = {
                 "rank": i + 1,
                 "sense": v.sense,
@@ -387,19 +428,21 @@ def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
                 "mod_position": v.mod_position,
                 "mod_strand": v.mod_strand,
                 "mod_positions": v.mod_positions or str(v.mod_position),
+                "raw_efficacy_score": raw_score,
                 "efficacy_score": round(v.efficacy_score, 2),
+                "total_penalty": round(total_pen, 1),
                 "delta_score": round(v.delta_score, 2),
                 "efficacy_label": _efficacy_label(v.efficacy_score),
+                "penalties": {k: round(v, 1) for k, v in p.items()},
             }
-            p = getattr(v, 'penalties', None)
-            if p is not None:
-                entry["penalties"] = {k: round(v, 1) for k, v in p.items()}
             results.append(entry)
 
         return {
             "parent_sense": req.sense,
             "parent_antisense": req.antisense,
             "parent_score": parent_score,
+            "model_b_baseline": model_b_baseline,
+            "naked_baseline": naked_baseline,
             "model": req.model,
             "total_variants": len(results),
             "results": results,

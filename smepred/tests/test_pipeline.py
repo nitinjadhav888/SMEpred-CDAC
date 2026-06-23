@@ -195,6 +195,114 @@ def test_biophysics_risc_5p_reduces_penalty():
     p_5p = risc_penalty(s, mod_a, s, a)
     assert p_5p <= p0, "5'-P should reduce RISC penalty"
 
+def test_biophysics_risc_moe_penalty():
+    from src.biophysics import risc_penalty
+    s = "GCAGCACGACUUCUUCAAGUU"
+    a = "CUUGAAGAAGUCGUGCUGCUU"
+    p0 = risc_penalty(s, a, s, a)
+    # MOE at position 6 (index 5) in antisense seed
+    mod_a = a[:5] + "E" + a[6:]
+    p_moe = risc_penalty(s, mod_a, s, a)
+    assert p_moe > p0, "MOE in seed should increase RISC penalty"
+
+def test_biophysics_risc_gna_disruptive():
+    from src.biophysics import risc_penalty
+    s = "GCAGCACGACUUCUUCAAGUU"
+    a = "CUUGAAGAAGUCGUGCUGCUU"
+    p0 = risc_penalty(s, a, s, a)
+    # GNA at position 3 (index 2) — disruptive zone (pos 2-5)
+    mod_a = a[:2] + "8" + a[3:]
+    p_gna = risc_penalty(s, mod_a, s, a)
+    assert p_gna > p0, "GNA at pos 3 should increase RISC penalty"
+
+def test_biophysics_risc_gna_beneficial():
+    from src.biophysics import risc_penalty
+    s = "GCAGCACGACUUCUUCAAGUU"
+    a = "CUUGAAGAAGUCGUGCUGCUU"
+    # GNA at position 7 (index 6) — beneficial zone (pos 6-8, Schlegel 2022 ESC+)
+    gna_a = a[:6] + "8" + a[7:]
+    p_gna = risc_penalty(s, gna_a, s, a)
+    # Same position with 2'-OMe instead — neutral mod, no bonus
+    ome_a = a[:6] + "M" + a[7:]
+    p_ome = risc_penalty(s, ome_a, s, a)
+    # GNA should be lower than 2'-OMe at same position
+    assert p_gna < p_ome, f"GNA at pos 7 should have lower penalty than 2'-OMe: {p_gna} >= {p_ome}"
+
+def test_biophysics_risc_una_exempt():
+    from src.biophysics import risc_penalty
+    s = "GCAGCACGACUUCUUCAAGUU"
+    a = "CUUGAAGAAGUCGUGCUGCUU"
+    # UNA at position 7 (index 6) — should be exempt from seed penalty (Bramsen 2010)
+    una_a = a[:6] + "6" + a[7:]
+    p_una = risc_penalty(s, una_a, s, a)
+    # 2'-OMe at same position — NOT exempt, should pay seed mod penalty
+    ome_a = a[:6] + "M" + a[7:]
+    p_ome = risc_penalty(s, ome_a, s, a)
+    assert p_una < p_ome, f"UNA at pos 7 should have lower penalty than 2'-OMe: {p_una} >= {p_ome}"
+
+def test_biophysics_risc_ena_penalty():
+    from src.biophysics import risc_penalty
+    s = "GCAGCACGACUUCUUCAAGUU"
+    a = "CUUGAAGAAGUCGUGCUGCUU"
+    p0 = risc_penalty(s, a, s, a)
+    # ENA at position 5 (index 4) — seed zone (pos 2-8)
+    mod_a = a[:4] + "Y" + a[5:]
+    p_ena = risc_penalty(s, mod_a, s, a)
+    assert p_ena > p0, "ENA in seed should increase RISC penalty"
+
+def test_biophysics_risc_tna_penalty():
+    from src.biophysics import risc_penalty
+    s = "GCAGCACGACUUCUUCAAGUU"
+    a = "CUUGAAGAAGUCGUGCUGCUU"
+    p0 = risc_penalty(s, a, s, a)
+    # TNA at position 4 (index 3) — seed body (pos 2-6)
+    mod_a = a[:3] + "9" + a[4:]
+    p_tna = risc_penalty(s, mod_a, s, a)
+    assert p_tna > p0, "TNA in seed body should increase RISC penalty"
+
+def test_biophysics_risc_missing_2f_penalty():
+    from src.biophysics import risc_penalty
+    # Use sequence with only 6 U/C and test 0 vs 4 vs 6 2'-F
+    s = "AAAAAAAAAAAAAAAAAAAAA"
+    a_base = "AAAAAAAUGCAUGCAUGCAU"  # ~6 U/C total
+    p_no_f = risc_penalty(s, a_base, s, a_base)
+    # 4 F on pyrimidines → ~67% coverage (~4/6) → no penalty, but total_mods=4
+    mod_a = list(a_base)
+    count = 0
+    for i, b in enumerate(mod_a):
+        if b in 'UC' and count < 4:
+            mod_a[i] = 'F'
+            count += 1
+    mod_a = ''.join(mod_a)
+    p_with_f = risc_penalty(s, mod_a, s, a_base)
+    # 2 F on pyrimidines → ~33% coverage → partial penalty, total_mods=2
+    mod_a_partial = list(a_base)
+    count = 0
+    for i, b in enumerate(mod_a_partial):
+        if b in 'UC' and count < 2:
+            mod_a_partial[i] = 'F'
+            count += 1
+    mod_a_partial = ''.join(mod_a_partial)
+    p_partial = risc_penalty(s, mod_a_partial, s, a_base)
+    assert p_with_f < p_partial, "Fuller 2'-F coverage should have lower penalty than partial"
+    assert p_partial < p_no_f, "Partial 2'-F coverage should have lower penalty than none"
+
+def test_biophysics_risc_exotic_penalty():
+    from src.biophysics import risc_penalty
+    s = "AAAAAAAAAAAAAAAAAAAAA"
+    a = "AAAAAAAAAAAAAAAAAAAAA"
+    # Benzyl (B) in guide strand → exotic penalty
+    mod_b = list(a); mod_b[5] = "B"; mod_b = "".join(mod_b)
+    p_b = risc_penalty(s, mod_b, s, a)
+    # 2'-OMe (M) in guide strand → no exotic penalty
+    mod_m = list(a); mod_m[5] = "M"; mod_m = "".join(mod_m)
+    p_m = risc_penalty(s, mod_m, s, a)
+    assert p_b > p_m, "Benzyl should have higher penalty than 2'-OMe"
+    # Multiple exotic mods
+    mod_bb = list(a); mod_bb[5] = "B"; mod_bb[10] = "J"; mod_bb = "".join(mod_bb)
+    p_bb = risc_penalty(s, mod_bb, s, a)
+    assert p_bb > p_b, "Multiple exotic mods should increase penalty"
+
 def test_biophysics_thermo_low_gc_penalty():
     from src.biophysics import thermo_penalty
     # Ideal GC = 43% (9/21) → within 35-50% sweet spot
@@ -222,7 +330,7 @@ def test_biophysics_adjusted_score_range():
     a = "CUUGAAGAAGUCGUGCUGCUU"
     for fn in [nuclease_penalty, immuno_penalty, risc_penalty, thermo_penalty, serum_penalty]:
         p = fn(s, a, s, a)
-        assert 0 <= p <= 40, f"{fn.__name__} returned {p} outside expected range"
+        assert 0 <= p <= 60, f"{fn.__name__} returned {p} outside expected range"
     adj, penalties, total = adjusted_efficacy_score(80, s, a, s, a)
     assert 0 <= adj <= 100
     assert set(penalties.keys()) == {"nuclease", "immuno", "risc", "thermo", "serum"}
@@ -255,6 +363,14 @@ if __name__ == "__main__":
         test_biophysics_nuclease_penalty_ps,
         test_biophysics_immuno_uridine_penalty,
         test_biophysics_risc_5p_reduces_penalty,
+        test_biophysics_risc_moe_penalty,
+        test_biophysics_risc_gna_disruptive,
+        test_biophysics_risc_gna_beneficial,
+        test_biophysics_risc_una_exempt,
+        test_biophysics_risc_ena_penalty,
+        test_biophysics_risc_tna_penalty,
+        test_biophysics_risc_missing_2f_penalty,
+        test_biophysics_risc_exotic_penalty,
         test_biophysics_thermo_low_gc_penalty,
         test_biophysics_serum_ps_reduces_penalty,
         test_biophysics_adjusted_score_range,

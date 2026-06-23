@@ -1,279 +1,161 @@
-# Biophysical Penalties — Scientific Reference
+# Biophysical Penalties — Complete Reference
 
-Each penalty function adjusts the raw LightGBM efficacy score to account for
-design trade-offs documented in the siRNA literature. Penalties are *subtractive*:
-a high penalty reduces the final score, reflecting that the modification pattern
-violates a well-established design principle.
+Five orthogonal domains adjust the raw LightGBM efficacy score downward (or upward in the case of RISC bonuses). Each domain targets a distinct biological mechanism, and the modules are designed to be **strictly non-overlapping** — no biological feature is penalized by more than one module.
 
 ---
 
-## Nuclease Penalty (0–16)
+## Adjustment Formula
 
-Protects siRNA against endo- and exonucleases in serum and cytoplasm.
-Penalizes unprotected termini and low 2'-modification density.
-
-### Rules
-
-| Condition | Penalty | Rationale |
-|-----------|---------|-----------|
-| Sense 5' terminus not PS | +3 | Exonuclease entry point |
-| Sense 3' terminus not PS | +2 | Exonuclease entry point |
-| Antisense 5' terminus not PS | +3 | Exonuclease entry point |
-| Antisense 3' terminus not PS | +2 | Exonuclease entry point |
-| Fewer than 3 PS linkages | +3 | 2–3 PS caps are minimally protective |
-| Zero PS linkages | +5 | No backbone protection at all |
-| 2'-mod density < 20% | +4 | Endonuclease vulnerable |
-| 2'-mod density 20–40% | +2 | Partial protection |
-
-### Literature
-
-- **Braasch & Corey, *Biochemistry* 2002** — "2'-modifications (OMe, F, MOE) confer
-  nuclease resistance proportional to modification density." [DOI: 10.1021/bi026319q]
-- **Choung et al., *Biochem Biophys Res Commun* 2006** — "Phosphorothioate (PS)
-  linkages at both 3'- and 5'-ends significantly increase siRNA half-life in serum."
-  [PMID: 16781668]
-- **Layzer et al., *RNA* 2004** — "At least two PS linkages at each terminus
-  required for >24 h half-life in 90% serum." [PMID: 15272123]
-- **Bramsen et al., *Nucleic Acids Res* 2009** — Systematic analysis: 2'-modification
-  density correlates with serum half-life (r = 0.82). [PMID: 19129219]
-- **Soutschek et al., *Nature* 2004** — First therapeutic siRNA (ALN-RSV01) used
-  PS + 2'-OMe for nuclease stability. [PMID: 15538371]
-
-### Notes
-
-- PS linkages at the 5' terminus of the antisense strand carry a separate RISC
-  penalty (see below) — this captures the trade-off between nuclease protection
-  and Ago2 loading efficiency.
-
----
-
-## Immunogenicity Penalty (0–28)
-
-siRNA can trigger innate immune responses via TLR7/8 (endosomal) and PKR/RIG-I
-(cytoplasmic). Unmodified Uridine-rich sequences are the strongest triggers.
-Modification of U (especially with 2'-OMe) suppresses immune recognition.
-
-### Rules
-
-| Condition | Penalty | Rationale |
-|-----------|---------|-----------|
-| Per unmodified U in AS seed (pos 2–8) | +4 ea | Seed U = strongest TLR8 signal |
-| Per unmodified U in AS tail (pos 9–21) | +1 ea | Weak signal |
-| Per unmodified U in sense strand | +1.5 ea | Weaker than AS |
-| GUUGU motif unmodified | +3 | TLR7/8 immunostimulatory motif |
-| GUGU motif unmodified | +3 | Secondary TLR7 motif |
-| UGU motif unmodified | +3 | Minimal TLR7 motif |
-| >16 total 2'-OMe | +4 | Excess OMe triggers alternative pathways |
-
-### Literature
-
-- **Judge et al., *Nat Biotechnol* 2005** — "Unmodified U-rich siRNA activates
-  TLR7-mediated immune response; 2'-OMe modification of U completely abrogates
-  this." [PMID: 15908940]
-- **Hornung et al., *Nat Med* 2005** — "GU-rich sequences are preferentially
-  recognized by TLR7/8; AU-rich more potent than GU-rich." [PMID: 15864720]
-- **Diebold et al., *Science* 2004** — "Uridine and GU-rich motifs in RNA are
-  the natural TLR7 ligand." [PMID: 15163984]
-- **Sioud & Sørensen, *J Mol Biol* 2004** — "Position 2–8 U's in the guide
-  strand are the strongest immune triggers." [PMID: 15458814]
-- **Robbins et al., *Nat Biotechnol* 2007** — "Excess 2'-OMe modification (>16
-  per duplex) can trigger non-TLR pathways including RIG-I." [PMID: 17663525]
-- **Jackson et al., *RNA* 2006** — 2'-OMe and 2'-F modification suppresses
-  interferon induction without reducing silencing activity. [PMID: 16714136]
-
-### Notes
-
-- The seed region penalty is 4× the tail penalty because TLR7/8 binding depends
-  on accessibility — the seed is most exposed in the RISC complex.
-- The GUUGU motif is a consensus TLR8 ligand (Judge 2005).
-
----
-
-## RISC Loading Penalty (0–31)
-
-Chemical modifications can impair RISC loading, strand selection, and Ago2
-catalysis. The seed region (positions 2–8 of antisense) is most sensitive.
-
-### Rules
-
-| Condition | Penalty | Rationale |
-|-----------|---------|-----------|
-| No 5'-P on antisense (symbol 1) | +5 | 5'-P required for Ago2 MID domain |
-| Seed mod (AS pos 2–8) | +2 ea | Impairs target recognition |
-| LNA at AS pos 2 | +5 | Blocks RISC loading entirely |
-| LNA at AS pos 3 | +5 | Blocks RISC loading entirely |
-| LNA at AS pos 4 | +5 | Blocks RISC loading entirely |
-| >60% AS modified ( >12 mods) | +5 | Steric hindrance of Ago2 |
-| PS at AS pos 1 | +2 | Reduces Ago2 affinity |
-
-### Literature
-
-- **Nykanen et al., *Cell* 2001** — "The 5'-phosphate of the guide strand is
-  essential for RISC assembly and function." [PMID: 11569857]
-- **Martinez & Tuschl, *Genes Dev* 2004** — "Ago2 directly contacts the 5'-P;
-  removing it reduces cleavage activity by >10×." [PMID: 15208625]
-- **Schwarz et al., *Cell* 2004** — "Strand selection is influenced by 5'
-  thermodynamic stability; modifications at 5' end affect selection bias."
-  [PMID: 15084227]
-- **Doench et al., *Genes Dev* 2004** — "Seed region pairing is the primary
-  determinant of target recognition." [PMID: 14744932]
-- **Lewis et al., *Cell* 2005** — "Mismatches in the seed region reduce
-  repression by >50%." [PMID: 15766517]
-- **Bramsen et al., *Nucleic Acids Res* 2009** — "LNA in the seed region
-  abrogates silencing; 2'-F and 2'-OMe are tolerated at most positions."
-  [PMID: 19129219]
-- **Deleavey et al., *Biochemistry* 2013** — "PS at position 1 of the guide
-  strand reduces Ago2 binding affinity 3-fold." [PMID: 23406415]
-- **Harborth et al., *Biochem Biophys Res Commun* 2003** — "Phosphorothioate
-  at the 5'-end of the antisense strand reduces silencing efficiency."
-  [PMID: 12569702]
-
-### Notes
-
-- The 5'-phosphate (symbol 1) is the single most important modification for
-  RISC loading — without it, efficacy is fundamentally limited.
-- LNA in positions 2–4 carries the heaviest individual penalty because of
-  steric clash with the Ago2 MID domain (Bramsen 2009 crystallographic data).
-- The ">60% AS modified" penalty reflects a bulk steric effect — heavily
-  modified guide strands cannot fit properly in the Ago2 binding channel.
-
----
-
-## Thermo Penalty (0–20)
-
-siRNA duplex stability affects RISC loading, target binding specificity, and
-off-target effects. Extreme GC content, homopolymer runs, and palindromes
-are penalized.
-
-### Rules
-
-| Condition | Penalty | Rationale |
-|-----------|---------|-----------|
-| GC < 30% or > 55% | +8 | Outside functional range |
-| GC in 30–35% or 50–55% | +3 | Suboptimal |
-| Palindrome (≥4 bp inverted repeat) | +5 | Hairpin formation |
-| 5-base homopolymer run (AAAA, etc.) | +5 | Skewed thermodynamics |
-| 6-base GC-only run | +3 | High Tm, off-target risk |
-
-### Literature
-
-- **Reynolds et al., *Nat Biotechnol* 2004** — "GC content 30–52% is optimal;
-  >52% increases off-target effects." [PMID: 15208640]
-- **Ui-Tei et al., *Nucleic Acids Res* 2004** — "Moderate GC content (35–45%)
-  gives best silencing, extremes reduce efficacy." [PMID: 15199101]
-- **Yoshinari et al., *Nucleic Acids Symp Ser* 2006** — "Inverted repeat
-  sequences >6 bp form hairpins that reduce siRNA activity." [PMID: 17150992]
-- **Khvorova et al., *Nat Biotechnol* 2003** — "Internal repeats can cause
-  self-structure, reducing available siRNA concentration." [PMID: 12830021]
-- **Shen et al., *Nucleic Acids Res* 2012** — "Homopolymer tracts disrupt
-  uniform melting profiles and increase off-target seed matches."
-  [PMID: 22344690]
-- **Petri et al., *Mol Ther Nucleic Acids* 2012** — "GC-rich regions >6 nt
-  correlate with reduced RISC loading speed." [PMID: 22832622]
-
-### Notes
-
-- This penalty uses the *unmodified* sense strand sequence, since the
-  thermodynamic properties are determined by the base composition.
-- The palindrome check uses a 4-base seed searching downstream for its
-  reverse complement — this catches both perfect 4-bp inverted repeats
-  and longer interrupted palindromes.
-
----
-
-## Serum Penalty (0–17)
-
-Serum stability is essential for therapeutic siRNA. Exonucleases degrade
-unprotected termini, and low modification density leaves the duplex
-vulnerable. PS and LNA at termini are the most effective protections.
-
-### Rules
-
-| Condition | Penalty | Rationale |
-|-----------|---------|-----------|
-| AS 5' terminus not PS | +4 | Most critical: 3'→5' exonuclease |
-| AS 3' terminus not PS | +3 | 5'→3' exonuclease |
-| SS 5' terminus not PS | +3 | 3'→5' exonuclease |
-| SS 3' terminus not PS | +2 | 5'→3' exonuclease |
-| Overall mod density < 20% | +4 | Unprotected against endonucleases |
-| Mod density 20–35% | +2 | Partially protected |
-
-### Literature
-
-- **Braasch & Corey, *Biochemistry* 2002** — "2'-Modifications confer
-  nuclease resistance proportional to density; LNA provides greatest
-  protection." [DOI: 10.1021/bi026319q]
-- **Layzer et al., *RNA* 2004** — "Phosphorothioate alone gives 4–6 h
-  half-life; combined PS + 2'-mod gives >48 h." [PMID: 15272123]
-- **Bramsen et al., *Nucleic Acids Res* 2009** — "Systematic comparison:
-  PS termini + 2'-mod backbone = maximal serum stability." [PMID: 19129219]
-- **Koshkin et al., *Tetrahedron* 1998** — "LNA-modified oligonucleotides
-  show dramatically enhanced serum stability." [DOI: 10.1016/S0040-4020(97)10271-0]
-- **Zhou et al., *Nucleic Acid Ther* 2014** — "Modification density >50%
-  unnecessary for serum stability; 30–40% is optimal." [PMID: 24628240]
-
-### Notes
-
-- The antisense 5' terminus carries the highest individual penalty because
-  3'→5' exonucleases are the primary degraders in serum.
-- The penalty interacts with nuclease_penalty (both measure protection) but
-  captures different aspects: nuclease_penalty focuses on the duplex interior
-  (endonucleases), while serum_penalty focuses on termini (exonucleases).
-
----
-
-## Total Penalty & Score Adjustment
-
-```python
-ADJUSTMENT_FACTOR = 0.70
-adjusted_score = max(0, raw_lightgbm_score - 0.70 × total_penalty)
+```
+adjusted_efficacy_score = max(0.0, min(100.0, raw_score − 0.70 × total_penalty))
 ```
 
-- **Total penalty range** for a typical siRNA: 50–80 (unmodified) to 25–60 (modified)
-- **Adjusted score range**: 0–75 after penalties (raw model output 0–100)
-- **Rationale for 0.70 factor**: Empirical calibration so unmodified siRNA scores
-  ~15–25 and best single-mod scores are in 35–60 range, reserving >60 for
-  well-balanced multi-mod designs.
-
-### How trade-offs work in practice
-
-| Design | Mods | Raw | Penalty | Adjusted | Commentary |
-|--------|------|-----|---------|----------|------------|
-| Unmodified | None | 62 | 48 | 17 | High nuclease/serum penalty from no PS; high immuno from unmodified U |
-| Single M@9 | M×1 | 83 | 42 | 38 | Better efficacy; similar penalties (1 mod doesn't change density much) |
-| PS termini only | S×4 | 74 | 38 | 37 | Lower nuclease + serum penalties; no other protection |
-| 5-mod balanced | F+M+E+1+M | 96 | 28 | 57 | 5'-P reduces risc; PS+2'-mods reduce nuclease/serum; better overall |
-| Over-methylated | M×20 | 100 | 52 | 64 | Low nuclease but high risc (>60% AS mod) + immuno (excess OMe) |
-
-The 5-mod balanced design beats the over-methylated design because trade-offs
-are managed: PS at termini + 5'-P + judicious 2'-mods = good protection without
-overwhelming RISC.
+The 0.70 factor is empirically calibrated so that:
+- Fully unmodified siRNA: adjusted ≈ 15–25
+- Best single-mod candidates: adjusted ≈ 35–60
+- Top multi-mod clinical designs (ESC/ESC+): adjusted ≥ 50
 
 ---
 
-## References Summary
+## 1. Nuclease Penalty (Range: 0–16)
 
-| # | Paper | Topic | Key Finding |
-|---|-------|-------|-------------|
-| 1 | Braasch & Corey 2002 | Nuclease resistance | 2'-mod density correlates with protection |
-| 2 | Layzer et al. 2004 | Nuclease/Serum | PS + 2'-mod = maximal half-life |
-| 3 | Bramsen et al. 2009 | Multiple | Systematic comparison of all mod types |
-| 4 | Judge et al. 2005 | Immunogenicity | U + GU-rich = immune trigger; 2'-OMe suppresses |
-| 5 | Hornung et al. 2005 | Immunogenicity | TLR7/8 recognizes U-rich and GU-rich RNA |
-| 6 | Sioud & Sørensen 2004 | Immunogenicity | Seed U = strongest immune signal |
-| 7 | Robbins et al. 2007 | Immunogenicity | Excess 2'-OMe can trigger alternative pathways |
-| 8 | Nykanen et al. 2001 | RISC loading | 5'-P essential for Ago2 |
-| 9 | Martinez & Tuschl 2004 | RISC loading | 5'-P deletion = 10× activity loss |
-| 10 | Doench et al. 2004 | RISC/Seed | Seed pairing = primary target determinant |
-| 11 | Deleavey et al. 2013 | RISC loading | PS at AS pos1 = 3× Ago2 affinity reduction |
-| 12 | Reynolds et al. 2004 | Thermo | Optimal GC = 30–52% |
-| 13 | Ui-Tei et al. 2004 | Thermo | 35–45% GC = best silencing |
-| 14 | Shen et al. 2012 | Thermo | Homopolymer runs increase off-target |
-| 15 | Soutschek et al. 2004 | Serum | PS + 2'-OMe in therapeutic ALN-RSV01 |
-| 16 | Choung et al. 2006 | Nuclease | PS at both ends = max protection |
-| 17 | Harborth et al. 2003 | RISC loading | PS at AS 5' reduces efficacy |
-| 18 | Koshkin et al. 1998 | Serum | LNA = dramatically enhanced stability |
-| 19 | Zhou et al. 2014 | Serum | 30–40% mod density is optimal |
-| 20 | Elbashir et al. 2001 | Mechanism | 21-nt siRNA functions in mammalian cells |
-| 21 | Khvorova et al. 2003 | Strand bias | Asymmetric thermodynamic stability |
-| 22 | Fire et al. 1998 | Mechanism | RNAi discovery |
+**Biological target**: Endonuclease stability (RNase A-family, 2'-5' oligoadenylate synthetase).
+
+**Orthogonality note**: Does NOT check termini protection (that is the serum penalty's domain). Checks only PS backbone coverage and 2'-modification density.
+
+| Condition | Penalty | Rationale | Citation |
+|-----------|---------|-----------|----------|
+| PS backbone count == 0 | +5 | No phosphorothioate whatsoever → rapid endonuclease cleavage | Braasch & Corey 2004 |
+| PS backbone count < 3 | +3 | Minimal backbone protection → moderate susceptibility | Braasch & Corey 2004 |
+| 2'-mod density < 20% | +4 | <4 modified positions → insufficient nuclease resistance | Czauderna et al. 2003 |
+| 2'-mod density < 40% | +2 | 4–8 modified positions → partial protection | Czauderna et al. 2003 |
+
+**Implementation**: Counts PS symbols ('S') and 2'-modified positions (M, F, L, E, D, Y, 8, 9, 6, B, J, V, N, O, P, R, H, K, Z, Q, W, X, 7) across both strands. Penalty is max of (PS penalty + density penalty), not additive — the worst-case scenario dominates.
+
+---
+
+## 2. Immuno Penalty (Range: 0–28)
+
+**Biological target**: Innate immune activation via TLR7 (GU-rich ssRNA) and TLR8 (AU-rich ssRNA) sensors. Unmodified uridine triggers interferon and pro-inflammatory cytokine release.
+
+| Condition | Penalty | Rationale | Citation |
+|-----------|---------|-----------|----------|
+| Unmodified U in AS seed (pos 2–8), each | **+2.0** | Seed uridines are the strongest TLR7/8 trigger | Sioud & Sørensen 2004 |
+| Unmodified U in AS tail (pos 9–21), each | **+0.5** | Tail uridines have weaker TLR effect | Goodchild et al. 2009 |
+| Unmodified U in sense strand, each | **+1.0** | Sense uridines also stimulate immune sensors | Judge et al. 2005 |
+| GU-rich motif: GUUGU | +3 | Most immunostimulatory GU-rich pentamer | Goodchild et al. 2009 |
+| GU-rich motif: GUGU | +3 | Moderately immunostimulatory tetramer | Goodchild et al. 2009 |
+| GU-rich motif: UGU | +3 | Weakest immunostimulatory trimer | Goodchild et al. 2009 |
+| Over-methylation (M count > 24) | +4 | Advisory — extremely high 2'-OMe may cause steric issues or hepatotoxicity | Alnylam ESC design |
+
+### Important Calibrations (C-DAC Panel Review, June 2026)
+
+| Parameter | Before | After | Reason |
+|-----------|--------|-------|--------|
+| Seed U penalty | +4.0 | **+2.0** | Was overtuning on low-GC sequences; CDAC review suggested halving |
+| Tail U penalty | +1.0 | **+0.5** | Consistent with seed U halving |
+| Over-methylation threshold | >16 M | **>24 M** | Clinical ESC designs use 25–27 M's safely (Alnylam) |
+
+### Non-Stacking Motif Detection
+
+Motif detection uses a **hierarchical non-stacking** search within each sliding window:
+
+1. Scan each 5-nt window for **GUUGU** — if matched, mask all 5 positions with sentinel `X` so same window cannot also trigger GUGU/UGU.
+2. Scan each 4-nt window for **GUGU** — skip if any position is masked.
+3. Scan each 3-nt window for **UGU** — skip if any position is masked.
+
+This prevents triple-counting a single GUUGU epitope (GUUGU contains both GUGU and UGU internally). Compare:
+- **Before** (stacking): GUUGU at positions 5-9 → +3 (GUUGU) + +3 (GUGU at 5-8) + +3 (UGU at 5-7) = **+9** for one epitope.
+- **After** (non-stacking): GUUGU at positions 5-9 → **+3** max (only GUUGU applies, positions 5-9 masked).
+
+---
+
+## 3. RISC Loading Penalty (Range: −10 to 60)
+
+**Biological target**: Guide strand loading into Argonaute-2, passenger strand ejection, and thermodynamic asymmetry. Can be NEGATIVE for beneficial chemistries (bonus).
+
+| Condition | Penalty | Rationale | Citation |
+|-----------|---------|-----------|----------|
+| Missing 5'-phosphate (AS pos 1) | +5 | 5'-P required for Ago2 MID domain binding | Frank et al. 2010 |
+| PS at AS pos 1 | +2 | PS backbone slows loading kinetics | |
+| Unmodified seed position (AS 2–8), each | +2 | Seed region plasticity → off-target binding | Jackson et al. 2006 |
+| UNA at AS pos 7 (exempt from seed penalty) | **0** | UNA reduces seed stability → no penalty | Bramsen et al. 2010 |
+| LNA at AS pos 2, 3, or 4, each | +5 | LNA too rigid for seed region → RISC loading impaired | Hidayah et al. 2021 |
+| MOE at AS pos 2–14, each | +3 | MOE bulky 2' modification → some RISC impairment | Prakash et al. 2005 |
+| GNA at AS pos 2–5, each | +4 | Glycol nucleic acid small backbone → disrupts seed | Schlegel et al. 2022 |
+| GNA at AS pos 6–8, each | **−2 bonus** | GNA at positions 6–8 improves selectivity window | Schlegel et al. 2022 (ESC+) |
+| ENA at AS pos 2–8, each | +4 | Ethylene-bridged nucleic acid → significant RISC impact | Morihiro et al. 2020 |
+| ENA at AS pos 9–14, each | +2 | ENA at tail positions → moderate impact | Morihiko et al. 2020 |
+| TNA at AS pos 2–6, each | +3 | Threose nucleic acid → moderate seed disruption | |
+| TNA at AS pos 7 (exempt) | 0 | Position 7 is flexible | |
+| TNA at AS pos 8–14, each | +1 | TNA at tail → minimal impact | |
+| 2'-F deficiency on pyrimidines < 20% | +6 | 2'-F critical for nuclease resistance + RISC affinity | Layzer et al. 2004 |
+| 2'-F deficiency on pyrimidines < 40% | +3 | Partial 2'-F → moderate penalty | Layzer et al. 2004 |
+| Exotic mod micro-penalty (Benzyl, Inosine), each | +2 | Large aromatic base modifications may distort helix | |
+| Other exotic mods (V, I, N, O, P, R, H, K, Z, Q, W, X, 7), each | +1 | Slight penalty for less-characterized chemistries | |
+
+### RISC Range Expansion (June 2026)
+
+The RISC penalty range was expanded from 31 → 50 → 60 to accommodate the full GNA/ENA/TNA position-split rules and exotic micro-penalties. The floor was lowered to −10 to accommodate GNA@6-8 bonuses stacking on top of 5'-P and PS@1 credits.
+
+---
+
+## 4. Thermo Penalty (Range: 0–20)
+
+**Biological target**: Melting temperature (Tm) of the siRNA duplex — extremes reduce RISC loading specificity and can cause off-target silencing.
+
+| Condition | Penalty | Rationale | Citation |
+|-----------|---------|-----------|----------|
+| GC < 30% or > 55% | +8 | Extreme GC → Tm too low (off-target) or too high (strands don't separate) | Reynolds et al. 2004 |
+| GC 30–35% or 50–55% | +3 | Borderline GC → moderate Tm concern | Reynolds et al. 2004 |
+| Palindrome (≥8 nt self-complementary) | +5 | Self-complementarity → hairpins reduce effective siRNA concentration | |
+| Homopolymer run (≥4 consecutive same nt) | +5 | Poly-A/G/C/U runs → secondary structure, reduced loading | |
+| GC run (≥6 consecutive G or C) | +3 | GC-rich runs → stable secondary structures impede RISC | |
+
+---
+
+## 5. Serum Penalty (Range: 0–17)
+
+**Biological target**: Exonuclease degradation in serum/bloodstream (serum nucleases digest unprotected 3' and 5' termini).
+
+**Orthogonality note**: Does NOT check modification density (that is the nuclease penalty's domain). Checks only whether the 3' and 5' termini of both strands are protected by PS backbone linkages, 5'-PO₄, or GalNAc conjugate.
+
+| Condition | Penalty | Rationale | Citation |
+|-----------|---------|-----------|----------|
+| AS 5' not PS or '1' (5'-PO₄) | +4 | 5' end unprotected → 5'→3' exonuclease activity | |
+| AS 3' not PS | +3 | 3' end unprotected → 3'→5' exonuclease activity | Elmén et al. 2005 |
+| SS 5' not PS or '4' (GalNAc) | +3 | 5' end of passenger unprotected | |
+| SS 3' not PS or '4' (GalNAc) | +2 | 3' end of passenger unprotected — GalNAc conjugate (symbol '4') counts as protected | |
+
+---
+
+## Literature Citations
+
+1. Braasch DA, Corey DR. *Biochemistry* 2004;41(14):4503-4510. PMID: 11926837
+2. Czauderna F, et al. *Nucleic Acids Res* 2003;31(11):2705-2716. PMID: 12771180
+3. Sioud M, Sørensen DR. *Oligonucleotides* 2004;14(1):1-11. PMID: 15346694
+4. Goodchild A, et al. *Oligonucleotides* 2009;19(2):89-98. PMID: 19445602
+5. Judge AD, et al. *Nat Biotechnol* 2005;23(4):457-462. PMID: 15778709
+6. Frank F, et al. *Nature* 2010;465(7299):818-822. PMID: 20505670
+7. Jackson AL, et al. *Nat Biotechnol* 2006;24(9):1151-1157. PMID: 16964229
+8. Bramsen JB, et al. *Nucleic Acids Res* 2010;38(9):2861-2878. PMID: 20139420
+9. Hidayah NN, et al. *Biochemistry* 2021;60(15):1170-1183. PMID: 33720707
+10. Prakash TP, et al. *J Med Chem* 2005;48(21):6696-6705. PMID: 16147155
+11. Schlegel MK, et al. *Nucleic Acids Res* 2022;50(16):9056-9070. PMID: 35996904
+12. Morihiro K, et al. *J Am Chem Soc* 2020;142(4):1968-1975. PMID: 31867957
+13. Layzer JM, et al. *RNA* 2004;10(5):766-771. PMID: 15100431
+14. Reynolds A, et al. *Nat Biotechnol* 2004;22(3):326-330. PMID: 14758366
+15. Elmén J, et al. *Nucleic Acids Res* 2005;33(1):439-447. PMID: 15653644
+16. Bramsen JB, Kjems J. *Front Genet* 2012;3:154. PMID: 22934100
+17. Deleavey GF, Damha MJ. *Chem Biol* 2012;19(8):937-954. PMID: 22921066
+18. Khvorova A, Watts JK. *Nat Biotechnol* 2017;35(3):238-248. PMID: 28244990
+19. Nair JK, et al. *J Am Chem Soc* 2014;136(49):16958-16961. PMID: 25434769
+20. Janas MM, et al. *Nucleic Acids Res* 2018;46(15):7679-7692. PMID: 29939332
+21. Foster DJ, et al. *Mol Ther* 2018;26(3):708-720. PMID: 29396262
+22. Schlegel MK, et al. *Nucleic Acids Res* 2022;50(16):9056-9070. (GNA position-split, ESC+ design)
+23. Dar SA, et al. *RNA Biol* 2016;13(8):700-712. PMID: 27348347 (SMEpred training data)
+24. Allerson CR, et al. *J Med Chem* 2005;48(4):901-904. PMID: 15715460 (2'-OMe + PS synergy)
+25. Dowler T, et al. *Nucleic Acids Res* 2006;34(6):1669-1675. PMID: 16556911 (ENA thermodynamics)
+26. Yang X, et al. *Nucleic Acids Res* 2012;40(8):3393-3404. PMID: 22210852 (PS/nuclease stability)
+27. Soutschek J, et al. *Nature* 2004;432(7014):173-178. PMID: 15538359 (GalNAc/PS protection)
+28. Kenski DM, et al. *Mol Ther Nucleic Acids* 2012;1:e5. PMID: 23344720 (siRNA localization)

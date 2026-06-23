@@ -1,8 +1,12 @@
 # Biophysics Scoring Module: Design & Implementation
 
-## Status: Design Document (not yet implemented)
+## Status: Legacy Design Document (Superseded)
 
-This document describes the planned `src/biophysics.py` module for multi-objective biophysical scoring of cm-siRNA variants. Implementation follows the design specified here.
+> **This document describes the *original planned* composite-score architecture.**
+> The **current implementation** (`src/biophysics.py`) uses a **penalty-based** approach:
+> `adjusted = raw - 0.70 × total_penalty` with 5 domains (nuclease 0-16, immuno 0-28,
+> risc 0-50, thermo 0-20, serum 0-17). As of June 2026, RISC includes MOE, GNA, and
+> 2'-F deficiency penalties. See [`PENALTIES_REFERENCE.md`](PENALTIES_REFERENCE.md).
 
 ---
 

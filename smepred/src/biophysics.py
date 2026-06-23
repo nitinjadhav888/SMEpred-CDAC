@@ -70,26 +70,19 @@ def nuclease_penalty(sense: str, antisense: str,
                       base_sense: str, base_antisense: str) -> float:
     """
     Penalty for inadequate nuclease resistance (0–16).
-    Exposed termini and low 2'-mod density are penalized.
+
+    Confined to endonuclease defence (2'-mod density) and backbone PS
+    coverage. Exonuclease (termini) protection is handled exclusively by
+    serum_penalty to avoid cross-module double-counting.
     """
     total = 0.0
 
-    # PS at termini protects against exonucleases
-    if sense[0] != "S":
-        total += 3
-    if sense[20] != "S":
-        total += 2
-    if antisense[0] != "S":
-        total += 3
-    if antisense[20] != "S":
-        total += 2
-
-    # Too few PS linkages overall
+    # PS backbone coverage — too few linkages → endonuclease vulnerability
     ps = (sense + antisense).count("S")
-    if ps < 3:
+    if ps == 0:
+        total += 5
+    elif ps < 3:
         total += 3
-    elif ps == 0:
-        total += 2  # extra penalty for zero PS
 
     # Low 2'-mod density → vulnerable to endonucleases
     combined = sense + antisense
@@ -109,37 +102,66 @@ def immuno_penalty(sense: str, antisense: str,
     Penalty for immunostimulatory features (0–28).
     Unmodified Uridine in seed = strongest signal.
     GU-rich motifs also trigger TLR-mediated response.
+
+    Penalties are calibrated to avoid stacking: a single TLR-binding epitope
+    (e.g. GUUGU) is penalized once, not once for each contained sub-motif.
     """
     total = 0.0
 
-    # Unmodified U in antisense seed (positions 2–8) → strongest TLR7/8 signal
+    # ── Unmodified U in antisense seed (positions 2–8) → TLR7/8 signal ──
+    # Calibrated per Sioud & Sørensen (2004): single U drives signal,
+    # but +4 per U was too aggressive — lowered to +2.0 (C-DAC review 2026).
     for i in range(1, min(8, len(antisense))):
         if base_antisense[i] == "U" and antisense[i] == base_antisense[i]:
-            total += 4
+            total += 2.0
 
-    # Unmodified U in antisense tail (positions 9–21)
+    # ── Unmodified U in antisense tail (positions 9–21) ──
+    # Endosomal exposure of the tail is secondary to seed recognition.
     for i in range(8, len(antisense)):
         if base_antisense[i] == "U" and antisense[i] == base_antisense[i]:
-            total += 1
+            total += 0.5
 
-    # Unmodified U in sense strand
+    # ── Unmodified U in sense strand ──
+    # Passenger strand is rapidly degraded; lower immune weight justified.
     for i in range(len(sense)):
         if base_sense[i] == "U" and sense[i] == base_sense[i]:
-            total += 1.5
+            total += 1.0
 
-    # GU-rich motifs (GUUGU, GUGU, UGU) — only penalize if completely unmodified
-    combined = sense + antisense
-    base_combined = base_sense + base_antisense
+    # ── GU-rich motifs — non-stacking hierarchical search ──
+    # GUUGU is the true high-affinity ligand for human TLR8 (Hornung et al. 2005).
+    # GUGU and UGU are weaker fragments bound by the same pocket. We check
+    # longest-first and mask covered positions with a sentinel so the same
+    # bases cannot trigger multiple motif penalties.
+    base_combined = list(base_sense + base_antisense)
+    combined = list(sense + antisense)
+    covered = [False] * len(combined)       # mask: True = already penalized
+
     for motif in ["GUUGU", "GUGU", "UGU"]:
-        idx = base_combined.find(motif)
-        while idx != -1:
-            region = combined[idx:idx + len(motif)]
-            if all(c == base_combined[idx + j] for j, c in enumerate(region)):
-                total += 3
-            idx = base_combined.find(motif, idx + 1)
+        mlen = len(motif)
+        # Build a search string where covered positions are replaced with '.'
+        # (never matches A/U/G/C so sub-motifs inside a prior hit are invisible)
+        search_str = "".join(
+            base_combined[i] if not covered[i] else "."
+            for i in range(len(base_combined))
+        )
+        idx = 0
+        while True:
+            idx = search_str.find(motif, idx)
+            if idx == -1:
+                break
+            # Check the window is still unmodified
+            region_mod = combined[idx:idx + mlen]
+            region_base = base_combined[idx:idx + mlen]
+            if all(r == region_base[j] for j, r in enumerate(region_mod)):
+                total += 3.0
+                for j in range(idx, idx + mlen):
+                    covered[j] = True
+            idx += 1
 
-    # Over-methylation penalty: >16 2'-OMe can trigger alternative immune pathways
-    if combined.count("M") > 16:
+    # ── Over-methylation advisory ──
+    # Extreme 2'-OMe saturation (>24 of 42 nt) can engage alternative pathways
+    # (Robbins et al. 2007). Clinical ESC designs operate at 25–27 safely.
+    if (sense + antisense).count("M") > 24:
         total += 4
 
     return min(total, 28.0)
@@ -148,8 +170,9 @@ def immuno_penalty(sense: str, antisense: str,
 def risc_penalty(sense: str, antisense: str,
                   base_sense: str, base_antisense: str) -> float:
     """
-    Penalty for impaired RISC loading / Ago2 activity (0–31).
+    Penalty for impaired RISC loading / Ago2 activity (min: −10, max: 60).
     Seed-region modifications and over-modified antisense are most harmful.
+    GNA at pos 6–8 and UNA at pos 7 can reduce penalty (beneficial).
     """
     total = 0.0
 
@@ -162,10 +185,12 @@ def risc_penalty(sense: str, antisense: str,
         total += 2
 
     # Modifications in the seed region (positions 2–8) impair target recognition
+    # UNA at position 7 is exempt — it improves off-target profile (Bramsen 2010)
     seed_mods = 0
     for i in range(1, min(8, len(antisense))):
         if antisense[i] != base_antisense[i]:
-            seed_mods += 1
+            if not (antisense[i] == "6" and i == 6):  # UNA@7 exempt
+                seed_mods += 1
     total += seed_mods * 2  # max +14
 
     # LNA in early seed (positions 2–4) blocks RISC loading
@@ -173,12 +198,65 @@ def risc_penalty(sense: str, antisense: str,
         if antisense[i] == "L":
             total += 5
 
-    # Over-modified antisense (>60%) reduces RISC loading efficiency
-    as_mods = sum(1 for i in range(len(antisense)) if antisense[i] != base_antisense[i])
-    if as_mods > 12:
-        total += 5
+    # MOE in guide strand positions 2–14 impairs Ago2 loading (bulky 2'-MOE)
+    for i in range(1, min(14, len(antisense))):
+        if antisense[i] == "E":
+            total += 3
 
-    return min(total, 31.0)
+    # GNA — position-dependent (Schlegel 2022 ESC+: pos 6-8 beneficial)
+    # GNA in positions 2–5 is disruptive (seed core)
+    for i in range(1, min(5, len(antisense))):
+        if antisense[i] == "8":
+            total += 4
+    # GNA in positions 6–8 is beneficial (ESC+, 6-8x therapeutic window)
+    for i in range(5, min(8, len(antisense))):
+        if antisense[i] == "8":
+            total -= 2  # bonus
+
+    # ENA (Y) — bicyclic nucleotide, stiffer than LNA
+    # ENA in seed positions 2–8 → steric clash (analogous to LNA)
+    for i in range(1, min(8, len(antisense))):
+        if antisense[i] == "Y":
+            total += 4
+    # ENA in central body 9–14 → over-stabilizes guide-target duplex
+    for i in range(8, min(14, len(antisense))):
+        if antisense[i] == "Y":
+            total += 2
+
+    # TNA (9) — 4-carbon backbone, position-dependent (Mori 2025)
+    # TNA in seed positions 2–6: backbone shift disrupts Ago2 register
+    for i in range(1, min(6, len(antisense))):
+        if antisense[i] == "9":
+            total += 3
+    # TNA at position 7 → 0 (beneficial, ESC+-like; exempt from penalty)
+    # TNA in positions 8–14: mild body disruption
+    for i in range(7, min(14, len(antisense))):
+        if antisense[i] == "9":
+            total += 1
+
+    # Missing 2'-F on pyrimidines reduces Ago2 compatibility
+    f_on_pyrs = sum(1 for i in range(len(antisense))
+                    if antisense[i] == "F" and base_antisense[i] in "UC")
+    pyrimidines = sum(1 for b in base_antisense if b in "UC")
+    if pyrimidines > 0 and f_on_pyrs / pyrimidines < 0.2:
+        total += 6
+    elif pyrimidines > 0 and f_on_pyrs / pyrimidines < 0.4:
+        total += 3
+
+    # Exotic mod micro-penalties — differentiate rare chemistries in guide strand
+    # Bulky aromatic (Benzyl), non-canonical bases (Inosine), and other sparse-training
+    # modifications get +1 each to break ties and reflect greater biological uncertainty.
+    exotic_mods = frozenset("BJVINOPRHKZQWX7")
+    exotic_count = sum(1 for c in antisense if c in exotic_mods)
+    if exotic_count > 0:
+        total += exotic_count * 1.0
+    # Extra penalty for bulkiest aryl modifications
+    if "B" in antisense:
+        total += 1
+    if "J" in antisense:
+        total += 1
+
+    return min(max(total, -10.0), 60.0)
 
 
 def thermo_penalty(sense: str, antisense: str,
@@ -212,29 +290,25 @@ def serum_penalty(sense: str, antisense: str,
                    base_sense: str, base_antisense: str) -> float:
     """
     Penalty for poor serum stability (0–17).
-    Exposed termini and low modification density reduce half-life in serum.
+
+    Exclusively checks exonuclease vulnerability at termini.
+    Modification density and backbone PS are confined to nuclease_penalty
+    to maintain strict orthogonal separation of concerns.
     """
     total = 0.0
 
     # Unprotected antisense termini → exonuclease degradation
-    if antisense[0] != "S":
+    # Antisense 5'-PO4 ("1") bound by Ago2 MID domain provides equivalent protection;
+    # sense 3'-conjugate ("4") provides steric nuclease shield.
+    if antisense[0] not in ("S", "1"):
         total += 4
-    if antisense[20] != "S":
+    if antisense[20] not in ("S", "1"):
         total += 3
 
     # Unprotected sense termini
-    if sense[0] != "S":
+    if sense[0] not in ("S", "4"):
         total += 3
-    if sense[20] != "S":
-        total += 2
-
-    # Low overall modification density
-    mod_count = sum(1 for a, b in zip(sense, base_sense) if a != b) + \
-                sum(1 for a, b in zip(antisense, base_antisense) if a != b)
-    mod_frac = mod_count / 42.0
-    if mod_frac < 0.2:
-        total += 4
-    elif mod_frac < 0.35:
+    if sense[20] not in ("S", "4"):
         total += 2
 
     return min(total, 17.0)

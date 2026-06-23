@@ -1,204 +1,210 @@
-# HelixZero-CMS — Chemical Modification Scanning for siRNA Therapeutics
+# HelixZero-CMS
 
-Predict which chemical modification pattern will silence your target gene best — before you spend money on synthesis. Given an mRNA target, HelixZero-CMS ranks all 1,260 modification variants per siRNA candidate by predicted efficacy (0–100), flags seed-based toxicity, and checks off-target complementarity.
+**Chemical Modification Space Prediction for siRNA Therapeutics**
 
----
+HelixZero-CMS predicts the silencing efficacy of chemically modified siRNA candidates. Given a 21-nt siRNA duplex, it scores 1,302 single-modification variants (31 symbols × 21 positions × 2 strands) and performs beam search across the multi-modification space (up to 14 simultaneous modifications) — all in ~20 seconds per sequence.
 
-## Quick Start
-
-```bash
-# Install
-pip install -r requirements.txt
-
-# Start the web app
-uvicorn api.main:app --reload --port 8000
-# → Open http://localhost:8000
-
-# Or use the command line
-python cli/run.py rank --sequence AUGGAGGAGCCGCAGUCAGAUCCUAG --top 10
-python cli/run.py single-mod --sense GCAGCACGACUUCUUCAAGUU --antisense CUUGAAGAAGUCGUGCUGCUU --top 20
-```
-
-On Windows, double-click `start_server.bat`.
+Live Web UI at `http://localhost:8000` (see [Installation](#installation)).
 
 ---
 
 ## What It Solves
 
-Designing an siRNA therapeutic means choosing a modification pattern from **30 modification types × 21 positions × 2 strands = 1,260 variants per siRNA**. Testing even 5 in the lab costs $1,000–$2,500 and takes 2–4 weeks.
-
-**HelixZero-CMS eliminates the guesswork.** It ranks all 1,260 variants computationally using LightGBM:
-
-| Model | Scope | Algorithm | Accuracy |
-|-------|-------|-----------|----------|
-| **cm-siRNA** | Modified siRNAs (all 1,260 variants) | LightGBM, 152-d features | Within-target PCC **0.68**, MAE **16.4%** |
-| **Naked** | Unmodified siRNA baseline ranking | LightGBM, 156-d features | All-source PCC **0.55** |
+| Problem | Magnitude |
+|---------|-----------|
+| Single-mod enumeration | 31 mods × 21 pos × 2 strands = **1,302** variants per siRNA |
+| Multi-mod space (14 max) | Σ C(1,302, k) for k=1..14 ≈ **10⁶⁸** combinatorial candidates |
+| Beam search traversal | ~35k candidates evaluated in **~20 seconds** |
+| Biophysics integration | **5 orthogonal penalty domains** (28+ literature citations) |
+| Clinical validation | **ESC/ESC+ designs** score ≥50, PK bounds satisfied |
 
 ---
 
-## How It Works
+## Installation
 
-```
-mRNA/gene sequence
-        │
-        ▼
-[1] Generate all 21-mer siRNA candidates (sliding window)
-        │
-        ▼
-[2] Extract 152-d feature vector per candidate:
-    ├── Mononucleotide composition (base + modified)     140-d
-    ├── Position-aware modification density               8-d
-    ├── GC content                                        2-d
-    └── Assay condition (dose, time)                      2-d
-        │
-        ▼
-[3] LightGBM predicts efficacy (0–100)
-        │
-        ▼
-[4] For your chosen siRNA → generate 1,260 modification variants
-        │
-        ▼
-[5] Rank all variants by predicted efficacy + toxicity flags
+```bash
+pip install -e .
+uvicorn api.main:app --reload --port 8000
+# → http://localhost:8000
 ```
 
-### Architecture
+**Requires**: Python 3.10+, LightGBM 4.x, scikit-learn 1.6+, NumPy, Pandas, FastAPI, Uvicorn.
 
-```mermaid
-graph LR
-    A[Raw siRNA Data<br/>25k modified + 4k naked] --> B[Feature Extraction<br/>152-d MNC vector]
-    B --> C[LightGBM<br/>Gradient-Boosted Trees]
-    C --> D[FastAPI Server]
-    D --> E[Single-File Web UI]
-    C --> F[Isotonic Calibrator]
-    F --> D
+---
+
+## Model Accuracy
+
+| Model | Features | Rows | PCC | Spearman | Trees | Leaves |
+|-------|----------|------|-----|----------|-------|--------|
+| **Naked V4** (unmodified screening) | 214-d sequence | 83,535 | 0.55 | — | — | — |
+| **HelixZero v4** (Model B) | **1,467-d** position-aware | 83,535 | **0.822** | **0.823** | 1,115 | 127 |
+
+---
+
+## 6-Step Workflow
+
+```
+┌─────┐  ┌──────┐  ┌────────┐  ┌──────────┐  ┌───────────┐  ┌───────┐
+│Input│→ │Rank  │→ │Select  │→ │Single-Mod│→ │Multi-Mod  │→ │Export │
+│Seq  │  │Tab   │  │Best Hit│  │Scan      │  │Beam Search│  │JSON   │
+└─────┘  └──────┘  └────────┘  └──────────┘  └───────────┘  └───────┘
+         (gene or      1,302       beam width=30
+          dsirna       variants    max_mods=14
+          mode)                    ~20 seconds
 ```
 
 ---
 
-## Model Performance
+## Web UI (4 Tabs)
 
-### cm-siRNA Model (Modification Ranking)
+### 1. 🔬 Rank siRNAs
+- **Input**: mRNA/gene sequence or FASTA file.
+- **Input type**: `Gene/Transcript` (sliding window) or `DsiRNA (27-mer)` (Dicer cleavage).
+- **Output**: All 21-mer candidates sorted by Naked Model score, with seed toxicity and functional checks. Click `Multi-Mod` on any row to jump directly to a beam search.
 
-| Metric | Value | What It Measures |
-|--------|-------|------------------|
-| **PCC** (random 82/18 split) | **0.6789** | Within-siRNA modification ranking accuracy |
-| **Spearman** | **0.6736** | Rank-order agreement |
-| **MAE** | **16.42%** | Average prediction error (%-points inhibition) |
-| **Best single gene** (PCSK9) | **0.8465** | — |
-| **Worst single gene** (PLN, n=95) | **0.4553** | Small-data genes are harder |
+### 2. 🔧 Single-Mod Scan
+- **Input**: 21-nt sense + antisense strands.
+- **Output**: All 1,302 single-mod variants ranked by Model B efficacy with biophysical penalty breakdown and seed toxicity.
+- Shows **dual baselines**: Naked Model (from Rank tab) vs Model B (recalibrated for chemical space).
 
-### Naked siRNA Model (Baseline Ranking)
+### 3. 🔄 Multi-Mod (Beam Search)
+- **Input**: 21-nt sense + antisense strands. Optional manual modification strings.
+- **Output**: Top multi-mod candidates scored by Model B with delta vs parent.
+- Uses plateau-based early stopping (stops when best score improves <0.5 over 3 rounds).
+- Expandable rows show color-coded sequence heatmaps with penalty details.
 
-| Source | n | PCC | Notes |
-|--------|---|-----|-------|
-| All (source-aware) | 4,060 | **0.5543** | Uses source one-hot encoding |
-| Taka (independent) | 699 | **0.6905** | Best generalization — peer-reviewed data |
-| Huesken (largest set) | 2,361 | 0.4179 | Public benchmark, known label noise |
-| Mix | 462 | 0.4622 | Mixed public data |
-| Internal catalog | 538 | 0.0486 | Poor quality — labels may be unreliable |
-
-### Training Data Sources
-
-**Modified siRNAs:** 25,763 unique sequences extracted from the HelixZero patent catalog, spanning 13 target genes, with per-position chemical modification annotations, measured % inhibition, and assay conditions (dose, timepoint).
-
-**Unmodified siRNAs:** 4,060 sequences merged from four published sources:
-- **Huesken et al. 2005** — *Nature Biotechnology* (2,361 rows, gold standard)
-- **Reynolds/Vickers/Ui-Tei** — Combined design-rule papers (462 rows)
-- **Takayuki (Naito) 2007** — *Nucleic Acids Research* (699 rows, cleanest single-condition)
-- **HelixZero internal** — In-house measurements (538 rows)
+### 4. 📖 Modifications
+- Complete legend of all 31 modification symbols with names and chemical types. Tap to copy any symbol.
 
 ---
 
-## Web UI
+## Biophysical Penalties
 
-A single-file dark-theme web app with four tabs:
+Five orthogonal domains adjust the raw efficacy score — strictly non-overlapping to prevent double-counting.
 
-| Tab | Purpose |
-|-----|---------|
-| **Rank** | Paste an mRNA sequence → get ranked siRNA candidates by naked baseline score |
-| **Single-Mod** | Scan all 1,260 chemical modifications for one siRNA → ranked by delta over baseline |
-| **Multi-Mod** | Beam-search for optimal multi-modification designs (2-mod, 3-mod combinations) |
-| **Modifications** | Reference table of all 30 supported chemical modification symbols |
+```
+adjusted = max(0, min(100, raw − 0.70 × total_penalty))
+```
 
-Built-in safety filters:
-- **Seed Toxicity** — Safe / Caution / Toxic labels based on Janas et al. 2018 hexamer lookup
-- **Modification-Aware Rescue** — If a rescue modification (2'-OMe, 2'-F, LNA, 2'-MOE) sits in the seed region, toxic → Mitigated
-- **Functional Checks** — GC content, homopolymer runs, GC-rich runs, internal palindromes
+| Domain | Range | What It Checks |
+|--------|-------|----------------|
+| **Nuclease** | 0–16 | PS backbone coverage, 2'-mod density (endo-nuclease). No termini. |
+| **Immunogenicity** | 0–28 | Unmodified U in seed (+2 each), tail (+0.5), sense (+1); GU-rich motifs GUUGU/GUGU/UGU (non-stacking); over-methylation (M>24). |
+| **RISC Loading** | −10 to 60 | 5'-P, seed mods (UNA@7 exempt), LNA/MOE/GNA/ENA/TNA position rules, GNA@6-8 bonus (−2), 2'-F deficiency, exotic micro-penalties. |
+| **Thermo** | 0–20 | GC extremes, palindrome, homopolymer, GC runs. |
+| **Serum** | 0–17 | Termini protection (PS, 5'-PO₄, GalNAc). No density checks. |
+
+**Key calibrations** (C-DAC panel review, June 2026):
+- Seed U penalty: +4 → **+2.0**
+- Tail U penalty: +1 → **+0.5**
+- Over-methylation threshold: >16 → **>24**
+- Nuclease/serum orthogonality enforced (no cross-module double-counting)
+- Motif detection: non-stacking hierarchical (GUUGU→GUGU→UGU)
+
+---
+
+## API Reference
+
+### POST `/rank`
+
+```json
+// Request
+{ "sequence": "AUGCAUGCAUG...", "top_n": 20, "input_type": "gene" }
+// Response
+{ "total_candidates": 42, "input_type": "gene", "results": [...] }
+```
+
+### POST `/single-mod`
+
+```json
+// Request
+{ "sense": "GGAAAUAGACACCAAAUCUUA", "antisense": "UAAGAUUUGGUGUCUAUUUCC", "full_scan": false }
+// Response
+{ "parent_score": 29.88, "naked_baseline": 27.09, "model_b_baseline": 29.88,
+  "total_variants": 1302, "model": "B", "results": [...] }
+```
+
+### POST `/multi-mod`
+
+```json
+// Request
+{ "sense": "GGAAAUAGACACCAAAUCUUA", "antisense": "UAAGAUUUGGUGUCUAUUUCC",
+  "sense_mods": "F,,M", "sense_positions": "2,5,,10,12", "antisense_mods": "", "antisense_positions": "" }
+```
+
+### POST `/multi-mod-scan`
+
+```json
+// Request
+{ "sense": "...", "antisense": "...", "max_mods": 14, "beam_width": 30, "full_scan": true }
+// Response
+{ "parent_score": 29.88, "naked_baseline": 27.09, "model_b_baseline": 29.88,
+  "total_variants": 352, "results": [...] }
+```
+
+### GET `/modifications`
+
+Returns all 31 modification symbols with `{"canonical": [...], "modifications": [...]}`.
+
+---
+
+## CLI Reference
+
+```bash
+python cli/run.py rank --seq "AUGCAUG..." --top-n 10
+python cli/run.py single-mod --sense "..." --antisense "..." --top-n 20
+python cli/run.py multi-mod --sense "..." --antisense "..." --sense-mods "M,F" --sense-pos "2,5"
+python cli/run.py multi-mod-scan --sense "..." --antisense "..." --max-mods 14 --beam-width 30
+```
 
 ---
 
 ## Project Structure
 
 ```
-├── api/main.py                   FastAPI server (4 endpoints)
-├── app.html                      Single-file web UI
-├── cli/run.py                    Command-line interface
+smepred/
+├── app.html                  # Single-file web UI
+├── api/main.py               # FastAPI server (9 endpoints)
+├── cli/run.py                # Command-line interface
 ├── src/
-│   ├── features.py               152-d MNC feature extraction
-│   ├── predictor.py              Ranking + modification prediction orchestration
-│   ├── modification_engine.py    Single-mod scan + multi-mod beam search
-│   ├── filters.py                Seed toxicity + functional checks
-│   ├── parser.py                 FASTA / inline sequence parsing
-│   └── sirna_generator.py        21-mer sliding window generation
-├── models/
-│   ├── model_a.pkl / b.pkl / c.pkl   cm-siRNA LightGBM (152-d, 799 trees)
-│   ├── model_normal.pkl               Naked siRNA LightGBM (156-d, 84 trees)
-│   ├── calibrator_cm.pkl / calibrator_naked.pkl   Isotonic calibrators
-│   ├── train_gbm_v3.py                 Training script (v3, 152-d, production)
-│   └── calibrate.py                   Isotonic calibrator fitting
-├── data/
-│   ├── hetero_train_2728.csv / hetero_val_303.csv   cm-siRNA data
-│   ├── normal_siRNA_extended.csv                    Naked siRNA data (4 sources)
-│   └── modification_codes.json                      30 symbol definitions
-├── docs/                          Full documentation suite
-└── tests/test_pipeline.py         19 unit tests
+│   ├── predictor.py          # Unified prediction (2 models)
+│   ├── sirna_generator.py    # Candidate generation (gene + DsiRNA)
+│   ├── features.py           # Feature extraction (214-d + 1,467-d)
+│   ├── modification_engine.py # 31 mod symbols, beam search
+│   ├── biophysics.py         # 5-domain orthgonal penalties
+│   ├── filters.py            # Toxicity + functional checks
+│   └── parser.py             # Sequence I/O
+├── models/                   # LightGBM .pkl files
+├── data/                     # Toxicity tables, mod definitions
+├── tests/                    # 32 unit tests + clinical benchmark
+├── docs/                     # Full architecture + validation docs
+└── scripts/                  # Training + paper generation
 ```
 
 ---
 
-## Tech Stack
+## Evaluation & Validation
 
-| Layer | Technology |
-|-------|-----------|
-| Language | **Python 3.11** |
-| ML model | **LightGBM** (gradient-boosted trees) |
-| Feature extraction | **NumPy** |
-| Data wrangling | **pandas** |
-| Evaluation | **scikit-learn**, **SciPy** |
-| API | **FastAPI + Uvicorn** |
-| Frontend | **Single-file HTML/CSS/JS** |
-| CLI | **Click** |
-
----
-
-## Relationship to Prior Work
-
-This project was inspired by the **SMEpred approach** (Dar et al., *RNA Biology* 2016), which introduced the concept of predicting chemically-modified siRNA efficacy using mononucleotide composition features and a two-step pipeline. HelixZero-CMS is a **complete independent rebuild** with:
-
-- **Algorithm change**: SVR → LightGBM (gradient-boosted trees), +84% relative PCC gain
-- **10× more data**: 2,728 → 25,763 modified siRNA rows from pharma patent catalog
-- **Additional capabilities**: Multi-mod beam search, isotonic calibration, seed-toxicity-aware filtering, production web app
+| Test | Status | Coverage |
+|------|--------|----------|
+| Pipeline unit tests | **32/32 PASS** | Features, biophysics all 5 domains, modification engine |
+| Clinical benchmark | **4/4 PASS** | ESC/ESC+ designs ≥50, PK bounds, GNA@7 −2 delta |
+| Dual baseline verification | **Verified** | Both Naked (27.09) and Model B (29.88) reported |
+| Biophysics orthogonality | **Verified** | Nuclease ≠ serum, no cross-module double-counting |
 
 ---
 
 ## Citation
 
-```bibtex
-@software{helixzero_cms2026,
-  title = {HelixZero-CMS: Chemical Modification Scanning for siRNA Therapeutics},
-  year = {2026},
-  description = {LightGBM-based predictor for ranking chemical modification patterns in siRNA drug design}
-}
+If you use HelixZero-CMS in your research, please cite:
+
+```
+Nitin Jadhav. "HelixZero-CMS: Chemical Modification Space Prediction for
+siRNA Therapeutics." CDAC-Pune HPC-M&BA, 2026.
 ```
 
 ---
 
 ## License
 
-MIT
-
----
-
-## Built At
-
-C-DAC Pune — June 2026
+Research use only. Not approved for clinical decision-making.

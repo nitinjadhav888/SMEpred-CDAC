@@ -60,6 +60,9 @@
   nav button:hover { color: var(--text); background: var(--surface2); }
   nav button.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--surface); }
   .upload-btn:hover { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+  .toggle-btn { background: transparent; color: var(--muted); }
+  .toggle-btn:hover { color: var(--text); background: var(--surface); }
+  .toggle-btn.active { background: var(--accent); color: #fff; }
 
   main { padding: 28px 32px; max-width: 100%; }
 
@@ -206,6 +209,129 @@
   }
   .use-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+  /* ─── Score breakdown tooltip ───────────────────────────────────── */
+  .score-cell {
+    position: relative;
+    cursor: help;
+  }
+  .score-popup {
+    display: none;
+    position: fixed;
+    z-index: 100;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    min-width: 280px;
+    max-width: 380px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    font-family: 'Inter', system-ui, sans-serif;
+    cursor: default;
+  }
+  .score-popup.visible { display: block; }
+  .score-popup .raw-line {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .score-popup .penalty-row {
+    display: flex; justify-content: space-between;
+    padding: 3px 0; font-size: 0.78rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .score-popup .penalty-row:last-child { border-bottom: none; }
+  .score-popup .penalty-name { color: var(--muted); }
+  .score-popup .penalty-val { font-weight: 600; font-family: monospace; }
+  .score-popup .calc-line {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-size: 0.82rem; text-align: center;
+  }
+  .score-popup .calc-line .formula {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  /* ─── Expandable rows ──────────────────────────────────────────── */
+  .row-expand-toggle {
+    cursor: pointer;
+    user-select: none;
+  }
+  .row-expand-toggle:hover { background: var(--surface2) !important; }
+  .expanded-detail {
+    display: none;
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+    padding: 16px 20px;
+  }
+  .expanded-detail.open { display: table-row; }
+  .expanded-detail .seq-view {
+    display: flex; flex-direction: column; gap: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+  }
+  .expanded-detail .seq-row {
+    display: flex; align-items: center; gap: 4px;
+  }
+  .expanded-detail .seq-label {
+    color: var(--muted); font-size: 0.7rem;
+    width: 60px; flex-shrink: 0; text-transform: uppercase;
+  }
+  .expanded-detail .nt {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 3px;
+    font-size: 0.78rem; font-weight: 600;
+    position: relative;
+  }
+  .expanded-detail .nt.modified {
+    background: #3a2e1a;
+    color: var(--yellow);
+    border: 1px solid #5a4e2a;
+    cursor: help;
+  }
+  .expanded-detail .nt.seed {
+    background: #3a1f2a;
+    color: #f8a0b0;
+    border: 1px solid #6a2f3a;
+  }
+  .expanded-detail .nt.terminus {
+    background: #1a2a3a;
+    color: #6c8aff;
+    border: 1px solid #3a4a6a;
+  }
+  .expanded-detail .nt.exotic {
+    background: #3a2a1a;
+    color: #f0c060;
+    border: 1px solid #5a4a2a;
+  }
+  .expanded-detail .penalty-legend {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+  }
+  .expanded-detail .penalty-legend span {
+    font-size: 0.68rem; color: var(--muted);
+    background: var(--surface); padding: 2px 6px; border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  /* ─── Confidence badge ─────────────────────────────────────────── */
+  .conf-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .conf-high {
+    background: #1a2a2a;
+    color: #34d399;
+    border: 1px solid #2a4a3a;
+  }
+  .conf-novel {
+    background: #2a2a1a;
+    color: #f0c060;
+    border: 1px solid #4a3a2a;
+  }
+
   .info-box {
     margin-top: 20px;
     background: #16261f;
@@ -340,12 +466,19 @@
       <span id="rank-filename" style="font-size:0.78rem;color:var(--green)"></span>
     </div>
   </div>
-  <div class="row cols2">
+  <div class="row cols3">
     <div class="field" style="max-width:220px">
       <label>Top N results (0 = all)</label>
       <input id="rank-topn" type="number" value="20" min="0">
     </div>
-
+    <div class="field" style="max-width:220px">
+      <label>Input Type</label>
+      <div style="display:flex;gap:4px;background:var(--surface2);border-radius:var(--radius);padding:3px;border:1px solid var(--border)">
+        <button id="input-type-gene" class="toggle-btn active" onclick="setInputType('gene')" style="flex:1;padding:6px 12px;border:none;border-radius:6px;cursor:pointer;font-size:0.78rem;font-weight:600;transition:all 0.15s">Gene/Transcript</button>
+        <button id="input-type-dsirna" class="toggle-btn" onclick="setInputType('dsirna')" style="flex:1;padding:6px 12px;border:none;border-radius:6px;cursor:pointer;font-size:0.78rem;font-weight:600;transition:all 0.15s">DsiRNA (27-mer)</button>
+      </div>
+      <div class="hint" id="input-type-hint">Sliding window across transcript → all 21-mer candidates</div>
+    </div>
   </div>
   <button class="run" id="btn-rank" onclick="runRank()">
     <span class="spinner"></span> Run Prediction
@@ -501,7 +634,7 @@ async function runMultiModFromRank(sense, antisense) {
   document.getElementById('mm-sense').value = sense;
   document.getElementById('mm-antisense').value = antisense;
   const mm = parseInt(document.getElementById('rm-maxmods')?.value) || 14;
-  document.getElementById('mm-results').innerHTML = `<div class="mm-loading"><div class="bar"></div><div class="label">Multi-mod beam search (max_mods=${mm})…</div><div class="hint">Full scan of 1260 single variants — may take 20–60 seconds</div></div>`;
+  document.getElementById('mm-results').innerHTML = `<div class="mm-loading"><div class="bar"></div><div class="label">Multi-mod beam search (max_mods=${mm})…</div><div class="hint">Recalibrating baseline for chemical space (Model B) — then scanning 1260 single variants</div></div>`;
   const mmTabBtn = document.querySelectorAll('nav button')[2];
   switchTab('multimod', mmTabBtn);
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -587,6 +720,19 @@ function scoreBarSmall(score) {
   </div>`;
 }
 
+// ─── INPUT TYPE TOGGLE ─────────────────────────────────────────────────────────
+let currentInputType = 'gene';
+
+function setInputType(type) {
+  currentInputType = type;
+  document.getElementById('input-type-gene').classList.toggle('active', type === 'gene');
+  document.getElementById('input-type-dsirna').classList.toggle('active', type === 'dsirna');
+  const hint = document.getElementById('input-type-hint');
+  hint.textContent = type === 'gene'
+    ? 'Sliding window across transcript → all 21-mer candidates'
+    : 'Dicer cleavage rule → single 21-mer product from 25-30 nt substrate';
+}
+
 // ─── RANK ─────────────────────────────────────────────────────────────────────
 function loadRankFile(event) {
   const file = event.target.files[0];
@@ -614,6 +760,7 @@ async function runRank() {
       body: JSON.stringify({
         sequence: seq,
         top_n: parseInt(document.getElementById('rank-topn').value) || 20,
+        input_type: currentInputType,
       })
     });
     const data = await res.json();
@@ -654,10 +801,10 @@ function renderRankResults(data) {
   document.getElementById('rank-results').innerHTML = `
     <div class="results-box">
       <div class="results-header">
-        <div>Showing <strong>${data.results.length}</strong> of <strong>${data.total_candidates}</strong> candidates (by naked baseline score)</div>
+        <div>Showing <strong>${data.results.length}</strong> of <strong>${data.total_candidates}</strong> candidates (${data.input_type === 'dsirna' ? 'DsiRNA mode — Dicer cleavage' : 'gene mode — sliding window'}, naked baseline)</div>
         <div style="display:flex;align-items:center;gap:8px;font-size:0.8rem">
           <label style="font-weight:500;white-space:nowrap">Max mods:</label>
-          <input id="rm-maxmods" type="number" min="2" max="21" value="14" style="width:48px;font-size:0.75rem;padding:2px 4px">
+          <input id="rm-maxmods" type="number" min="2" max="21" value="14" style="width:48px;font-size:0.75rem;padding:2px 4px" title="Higher values = slower. Each extra mod adds another beam search round.">
         </div>
       </div>
       <div class="table-wrap">
@@ -795,15 +942,13 @@ function renderSingleModResults(data) {
     const deltaStr = delta != null
       ? `<span style="color:${delta >= 0 ? '#34d399' : '#f87171'}">${delta >= 0 ? '+' : ''}${delta.toFixed(2)}</span>`
       : '—';
-    const modPos = r.mod_position ?? r.position ?? '—';
     const modSym = r.mod_symbol ?? r.modification ?? '—';
-    const modStrnd = r.mod_strand ?? r.strand ?? '—';
     return `<tr>
       <td style="color:var(--muted)">${r.rank ?? i+1}</td>
       <td style="letter-spacing:0.05em">${r.sense ?? '—'}</td>
       <td style="letter-spacing:0.05em">${r.antisense ?? '—'}</td>
-      <td>${modStrnd}</td>
-      <td>${modPos}</td>
+      <td>${r.mod_strand ?? '—'}</td>
+      <td>${r.mod_position ?? '—'}</td>
       <td>${modSym}</td>
       <td>${scoreBar(r.efficacy_score ?? r.score ?? 0)}</td>
       <td>${deltaStr}</td>
@@ -815,10 +960,20 @@ function renderSingleModResults(data) {
   // so we show its baseline once here instead of repeating the same % on every row.
   const parentBadge = modToxBadge(parentViab, parentLabel, `Parent seed: ${parentSeed}`);
   const cmParentScore = data.parent_score != null ? data.parent_score : '—';
+  const nakedBase = data.naked_baseline ?? cmParentScore;
+  const modelBBase = data.model_b_baseline ?? cmParentScore;
   const parentBanner = `
-    <div style="display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border)">
-      <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Parent baseline</span>
-      <span style="font-size:0.9rem;font-weight:700;color:var(--text)">${scoreBarSmall(cmParentScore)}</span>
+    <div style="display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Baseline</span>
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="font-size:0.6rem;color:var(--muted)">Naked</span>
+        ${scoreBarSmall(nakedBase)}
+      </div>
+      <span style="font-size:0.65rem;color:var(--muted)">→</span>
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="font-size:0.6rem;color:var(--muted)">Model B</span>
+        ${scoreBarSmall(modelBBase)}
+      </div>
       <span style="width:1px;height:20px;background:var(--border)"></span>
       <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Seed toxicity</span>
       ${parentBadge}
@@ -833,7 +988,7 @@ function renderSingleModResults(data) {
   document.getElementById('sm-results').innerHTML = `
     <div class="results-box">
       <div class="results-header">
-        <div>Top <strong>${data.results.length}</strong> of <strong>${data.total_variants}</strong> variants — Model <strong>${data.model}</strong> ${scanModeLabel}</div>
+        <div>Top <strong>${data.results.length}</strong> of <strong>${data.total_variants}</strong> variants — Model B (baseline recalibrated for chemical space) ${scanModeLabel}</div>
       </div>
       ${parentBanner}
       <div class="table-wrap">
@@ -886,6 +1041,8 @@ function renderMultiModResult(data) {
   const score = r.efficacy_score ?? r.score ?? 0;
   const label = r.efficacy_label ?? r.label ?? '—';
   const parentScore = data.parent_score;
+  const nakedBase = data.naked_baseline ?? parentScore;
+  const modelBBase = data.model_b_baseline ?? parentScore;
   const delta = r.delta_score;
   const tox = modToxBadge(r.toxicity_score, r.toxicity_label ?? 'Unknown', r.toxicity_note ?? '');
 
@@ -923,7 +1080,17 @@ function renderMultiModResult(data) {
     : '';
 
   const parentHtml = parentScore != null
-    ? `<div style="margin-right:24px"><div class="big-score" style="color:var(--muted);font-size:1.5rem">${parentScore.toFixed(1)}</div><div class="score-label">Parent baseline</div></div>`
+    ? `<div style="margin-right:24px;display:flex;gap:12px;align-items:flex-end">
+        <div>
+          <div class="big-score" style="color:var(--muted);font-size:1.5rem">${nakedBase.toFixed(1)}</div>
+          <div class="score-label" style="font-size:0.6rem;color:var(--muted)">Naked Model</div>
+        </div>
+        <div style="font-size:0.7rem;color:var(--muted);margin-bottom:6px">→</div>
+        <div>
+          <div class="big-score" style="color:var(--muted);font-size:1.5rem">${modelBBase.toFixed(1)}</div>
+          <div class="score-label" style="font-size:0.6rem;color:var(--accent);font-weight:600">Model B Baseline</div>
+        </div>
+      </div>`
     : '';
 
   document.getElementById('mm-results').innerHTML = `
@@ -945,6 +1112,155 @@ function renderMultiModResult(data) {
     </div>`;
 }
 
+// ─── Confidence Badge Helper ──────────────────────────────────────────────
+const _STANDARD_MODS = new Set(['F','M','S','1','L','E','D']);
+const _EXOTIC_MODS   = new Set(['B','J','V','I','N','O','P','R','H','K','Z','Q','W','X','7']);
+
+function confidenceBadge(symbol) {
+  const mods = symbol.replace(/[+]/g, '').split('');
+  let hasExotic = false;
+  for (const m of mods) {
+    if (_EXOTIC_MODS.has(m)) { hasExotic = true; break; }
+  }
+  if (!hasExotic) {
+    return '<span class="conf-badge conf-high" title="Uses established ESC chemistry (F, M, S, 1, L, E) with extensive clinical precedent">High Clinical Precedent</span>';
+  }
+  return '<span class="conf-badge conf-novel" title="Includes novel/experimental modifications with limited clinical data — treated as exploratory research candidates">Novel / Experimental Core</span>';
+}
+
+// ─── Score Breakdown Popup ────────────────────────────────────────────────
+function scoreBreakdownPopup(r) {
+  const raw = r.raw_efficacy_score || r.efficacy_score;
+  const adj = r.efficacy_score;
+  const p = r.penalties || {};
+  const totalPen = r.total_penalty || Object.values(p).reduce((a,b) => a+b, 0);
+
+  const penaltyRows = [
+    { key: 'nuclease', label: 'Nuclease Shielding', color: p.nuclease < 4 ? '#34d399' : p.nuclease < 8 ? '#fbbf24' : '#f87171' },
+    { key: 'immuno', label: 'Innate Immunogenicity (TLR7/8)', color: p.immuno < 4 ? '#34d399' : p.immuno < 8 ? '#fbbf24' : '#f87171' },
+    { key: 'risc', label: 'RISC Loading Constraints', color: p.risc < 4 ? '#34d399' : p.risc < 8 ? '#fbbf24' : '#f87171' },
+    { key: 'thermo', label: 'Thermodynamic / Structural', color: p.thermo < 4 ? '#34d399' : p.thermo < 8 ? '#fbbf24' : '#f87171' },
+    { key: 'serum', label: 'Serum Exonuclease', color: p.serum < 4 ? '#34d399' : p.serum < 8 ? '#fbbf24' : '#f87171' },
+  ];
+
+  const pRows = penaltyRows.map(pr => {
+    const val = p[pr.key] || 0;
+    return `<div class="penalty-row">
+      <span class="penalty-name">${pr.label}</span>
+      <span class="penalty-val" style="color:${pr.color}">-${val.toFixed(1)}</span>
+    </div>`;
+  }).join('');
+
+  return `<div class="score-popup">
+    <div class="raw-line">Raw Predicted Efficacy (LightGBM): <span style="color:var(--accent)">${raw.toFixed(1)}</span></div>
+    ${pRows}
+    <div class="penalty-row">
+      <span class="penalty-name" style="font-weight:700">Total Penalty</span>
+      <span class="penalty-val" style="color:#f87171">-${totalPen.toFixed(1)}</span>
+    </div>
+    <div class="calc-line">
+      <span class="formula">${raw.toFixed(1)} − (0.70 × ${totalPen.toFixed(1)}) = <strong style="color:${adj >= 70 ? '#34d399' : adj >= 55 ? '#fbbf24' : '#f87171'}">${adj.toFixed(1)}</strong></span>
+    </div>
+  </div>`;
+}
+
+// ─── Expanded Detail Row ──────────────────────────────────────────────────
+function buildExpandedDetail(sense, antisense, penalties, modSymbol, parentSense, parentAntisense) {
+  const mods = new Map();
+  const syms = modSymbol.replace(/[+]/g, '');
+  // Build position annotation based on mod symbol positions (not perfect without parent, but good enough)
+  // Count mods from symbol length — each unique symbol = one modification position
+  const modSet = new Set(syms);
+
+  function ntClass(base, parentBase, pos, strand) {
+    const classes = [];
+    const isMod = base !== parentBase;
+    if (!isMod) return '';
+    // Seed region (antisense pos 2-8)
+    if (strand === 'antisense' && pos >= 1 && pos <= 7) {
+      classes.push('seed');
+    }
+    // Terminus
+    if (pos === 0 || pos === 20) {
+      classes.push('terminus');
+    }
+    // Exotic mod
+    if (_EXOTIC_MODS.has(base)) {
+      classes.push('exotic');
+    }
+    return classes.join(' ');
+  }
+
+  function ntTitle(base, parentBase, pos, strand) {
+    if (base === parentBase) return '';
+    const pos1 = pos + 1;
+    const titles = [];
+    titles.push(`Mod: ${base} at ${strand} pos ${pos1} (was ${parentBase})`);
+    if (strand === 'antisense' && pos >= 1 && pos <= 7) {
+      titles.push('Seed-region modification (+2 RISC penalty)');
+    }
+    if (strand === 'antisense' && pos >= 0 && pos <= 2 && base === 'L') {
+      titles.push('LNA in early seed blocks RISC loading (+5)');
+    }
+    if (strand === 'antisense' && pos >= 1 && pos <= 13 && base === 'E') {
+      titles.push('2\'-MOE disrupts Ago2 binding channel (+3)');
+    }
+    if (_EXOTIC_MODS.has(base)) {
+      titles.push('Novel/experimental modification (+1 micro-penalty)');
+    }
+    if (strand === 'antisense' && pos === 0 && base === '1') {
+      titles.push('5\'-Phosphate — enables RISC loading (reduces penalty)');
+    }
+    if ((pos === 0 || pos === 20) && base === 'S') {
+      titles.push('PS terminus — nuclease/serum protection');
+    }
+    return titles.join(' | ');
+  }
+
+  function ntHtml(base, parentBase, pos, strand) {
+    const isMod = base !== parentBase;
+    const cls = ntClass(base, parentBase, pos, strand);
+    const title = ntTitle(base, parentBase, pos, strand);
+    const display = !isMod ? base : `<span style="font-weight:800">${base}</span>`;
+    const attrs = isMod ? `class="nt modified ${cls}" title="${title.replace(/"/g,'&quot;')}"` : `class="nt"`;
+    return `<span ${attrs}>${display}</span>`;
+  }
+
+  const pSense = parentSense || sense;
+  const pAntisense = parentAntisense || antisense;
+  const senseHtml = Array.from(sense).map((b, i) => ntHtml(b, pSense[i] || b, i, 'sense')).join('');
+  const antisenseHtml = Array.from(antisense).map((b, i) => ntHtml(b, pAntisense[i] || b, i, 'antisense')).join('');
+
+  // Penalty legend
+  const p = penalties || {};
+  const legendItems = [];
+  if (p.nuclease > 0) legendItems.push(`<span>🧬 Nuclease: -${p.nuclease.toFixed(1)}</span>`);
+  if (p.immuno > 0) legendItems.push(`<span>🛡️ Immuno: -${p.immuno.toFixed(1)}</span>`);
+  if (p.risc > 0) legendItems.push(`<span>🎯 RISC: -${p.risc.toFixed(1)}</span>`);
+  if (p.thermo > 0) legendItems.push(`<span>🌡️ Thermo: -${p.thermo.toFixed(1)}</span>`);
+  if (p.serum > 0) legendItems.push(`<span>💉 Serum: -${p.serum.toFixed(1)}</span>`);
+
+  return `<div class="seq-view">
+    <div class="seq-row">
+      <span class="seq-label">Sense (5')</span>
+      ${senseHtml}
+      <span style="color:var(--muted);font-size:0.68rem;margin-left:6px">3'</span>
+    </div>
+    <div class="seq-row">
+      <span class="seq-label">Antisense (3')</span>
+      ${antisenseHtml}
+      <span style="color:var(--muted);font-size:0.68rem;margin-left:6px">5'</span>
+    </div>
+    <div class="penalty-legend">
+      ${legendItems.join('')}
+      <span style="border:none;background:none;color:var(--muted);font-size:0.68rem">${'AUCG'.includes(Array.from(sense).filter(b => !'AUCG'.includes(b))[0] || '') ? '' : '<span style="border:1px solid #5a4e2a;color:var(--yellow)">■ Highlighted = modified</span>'}</span>
+      <span style="border-color:#6a2f3a;color:#f8a0b0">■ Seed region (pos 2-8)</span>
+      <span style="border-color:#3a4a6a;color:#6c8aff">■ Terminus</span>
+      <span style="border-color:#5a4a2a;color:#f0c060">■ Experimental</span>
+    </div>
+  </div>`;
+}
+
 // Render Auto Multi-Mod Scan results in Multi-Mod tab (top 30 displayed)
 function renderAutoMultiModResults(data) {
   if (!data.results?.length) {
@@ -956,9 +1272,22 @@ function renderAutoMultiModResults(data) {
   const total = data.total_variants;
 
   const parentScore = data.parent_score;
-  const parentBadge = `<div style="display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border);margin-bottom:12px">
-    <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Parent baseline</span>
-    <span style="font-size:0.9rem;font-weight:700;color:var(--text)">${scoreBarSmall(parentScore)}</span>
+  const nakedBase = data.naked_baseline ?? parentScore;
+  const modelBBase = data.model_b_baseline ?? parentScore;
+  const baseDiff = (modelBBase - nakedBase).toFixed(1);
+  const diffColor = modelBBase >= nakedBase ? '#34d399' : '#f87171';
+  const parentBadge = `<div style="display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border);margin-bottom:12px;flex-wrap:wrap">
+    <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Baseline</span>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span style="font-size:0.65rem;color:var(--muted)">Naked Model</span>
+      ${scoreBarSmall(nakedBase)}
+    </div>
+    <span style="font-size:0.7rem;color:var(--muted)">→</span>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span style="font-size:0.65rem;color:var(--muted)">Model B</span>
+      ${scoreBarSmall(modelBBase)}
+    </div>
+    <span style="font-size:0.7rem;color:${diffColor};font-weight:600">${modelBBase >= nakedBase ? '+' : ''}${baseDiff}</span>
     <span style="width:1px;height:20px;background:var(--border)"></span>
     <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Multi-Mod Beam Search</span>
     <span style="font-size:0.75rem;color:var(--muted);font-family:monospace">Top <strong>${displayResults.length}</strong> of <strong>${total}</strong> candidates — Model <strong>${data.model}</strong></span>
@@ -969,23 +1298,29 @@ function renderAutoMultiModResults(data) {
     const deltaStr = delta != null
       ? `<span style="color:${delta >= 0 ? '#34d399' : '#f87171'}">${delta >= 0 ? '+' : ''}${delta.toFixed(2)}</span>`
       : '—';
-    const p = r.penalties;
-    let penaltyTip = '';
-    if (p) {
-      const items = ['nuclease','immuno','risc','thermo','serum'].map(k =>
-        `${k.charAt(0).toUpperCase()+k.slice(1)}: -${(p[k]||0).toFixed(1)}`
-      ).join(' | ');
-      penaltyTip = ` title="${items}"`;
-    }
-    return `<tr>
+    const p = r.penalties || {};
+    const totalPen = r.total_penalty || Object.values(p).reduce((a,b) => a+b, 0);
+
+    // Score column with breakdown popup
+    const scoreHtml = `<div class="score-cell">${scoreBar(r.efficacy_score ?? 0)}${scoreBreakdownPopup(r)}</div>`;
+
+    // Confidence badge
+    const confHtml = confidenceBadge(r.mod_symbol);
+
+    // Expandable row data
+    const detailHtml = buildExpandedDetail(r.sense, r.antisense, p, r.mod_symbol, data.parent_sense, data.parent_antisense);
+
+    return `<tr class="row-expand-toggle" onclick="toggleRow(this)">
       <td style="color:var(--muted)">${r.rank ?? i+1}</td>
       <td style="letter-spacing:0.05em">${r.sense}</td>
       <td style="letter-spacing:0.05em">${r.antisense}</td>
-      <td>${r.mod_strand}</td>
       <td>${r.mod_symbol}</td>
-      <td>${r.mod_position}</td>
-      <td>${scoreBar(r.efficacy_score ?? 0)}</td>
+      <td>${confHtml}</td>
+      <td>${scoreHtml}</td>
       <td>${deltaStr}</td>
+    </tr>
+    <tr class="expanded-detail" style="display:none">
+      <td colspan="7">${detailHtml}</td>
     </tr>`;
   }).join('');
 
@@ -999,13 +1334,70 @@ function renderAutoMultiModResults(data) {
         <table>
           <thead><tr>
             <th>#</th><th>Modified Sense</th><th>Modified Antisense</th>
-            <th>Strand(s)</th><th>Mod(s)</th><th>Pos</th><th>Score (adj.)</th><th>Δ Score</th>
+            <th>Mod(s)</th><th>Chemistry</th><th>Score (adj.)<br><span style="font-weight:400;color:var(--muted);font-size:0.65rem">hover for breakdown</span></th><th>Δ Score</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
     </div>`;
 }
+
+// Toggle expanded detail row
+function toggleRow(row) {
+  const detail = row.nextElementSibling;
+  if (detail && detail.classList.contains('expanded-detail')) {
+    const isOpen = detail.style.display === 'table-row';
+    detail.style.display = isOpen ? 'none' : 'table-row';
+  }
+}
+
+// ─── Smart tooltip positioning ──────────────────────────────────────────────
+document.addEventListener('mouseover', function(e) {
+  const cell = e.target.closest('.score-cell');
+  if (!cell) return;
+  // Only trigger when entering FROM outside the cell+popup
+  const related = e.relatedTarget;
+  if (related && (cell.contains(related) || related.closest('.score-popup'))) return;
+  const popup = cell.querySelector('.score-popup');
+  if (!popup) return;
+
+  // Measure offscreen
+  popup.classList.add('visible');
+  popup.style.left = '-9999px';
+  popup.style.top = '-9999px';
+  const pw = popup.offsetWidth;
+  const ph = popup.offsetHeight;
+
+  const rect = cell.getBoundingClientRect();
+  const gap = 10;
+  let left = rect.right + gap;
+  let top = rect.top - 8;
+
+  if (left + pw > window.innerWidth - gap) {
+    left = rect.left - gap - pw;
+  }
+  if (left < gap) {
+    left = gap;
+    top = rect.bottom + gap;
+  }
+  if (top + ph > window.innerHeight - gap) {
+    top = window.innerHeight - ph - gap;
+  }
+  if (top < gap) top = gap;
+
+  popup.style.left = left + 'px';
+  popup.style.top = top + 'px';
+});
+
+document.addEventListener('mouseout', function(e) {
+  const cell = e.target.closest('.score-cell');
+  if (!cell) return;
+  // Only hide when leaving TO outside the cell (popup is inside cell)
+  const related = e.relatedTarget;
+  if (related && cell.contains(related)) return;
+  const popup = cell.querySelector('.score-popup');
+  if (popup) popup.classList.remove('visible');
+});
 
 // ─── MODS ─────────────────────────────────────────────────────────────────────
 let modsLoaded = false;

@@ -223,6 +223,7 @@ class RankedCmSiRNA:
 def rank_sirnas(
     source: Union[str, Path],
     top_n: Optional[int] = None,
+    input_type: str = "gene",
 ) -> List[RankedSiRNA]:
     """
     From an mRNA/gene input, generate and rank all 21-mer siRNA candidates.
@@ -233,6 +234,9 @@ def rank_sirnas(
         mRNA sequence, FASTA file path, or inline FASTA text.
     top_n  : optional int
         If set, return only the top N candidates.
+    input_type : str
+        "gene" (default) → sliding window across transcript.
+        "dsirna"        → single 21-mer via Dicer cleavage rule.
 
     Returns
     -------
@@ -241,8 +245,12 @@ def rank_sirnas(
     # Step 1: parse
     seq = load_sequence(source)
 
-    # Step 2: generate candidates
-    candidates: List[SiRNACandidate] = generate_candidates(seq)
+    # Step 2: generate candidates (gene: sliding window; dsirna: Dicer rule)
+    from .sirna_generator import generate_candidates, generate_dsirna_candidate
+    if input_type == "dsirna":
+        candidates: List[SiRNACandidate] = generate_dsirna_candidate(seq)
+    else:
+        candidates: List[SiRNACandidate] = generate_candidates(seq)
 
     # Step 3: extract features (V4 for naked model)
     sense_list     = [c.sense     for c in candidates]
@@ -309,6 +317,7 @@ def _mini_mod_scan(sense: str, antisense: str) -> Tuple[List[str], List[str], Li
 def rank_by_naked_score(
     source: Union[str, Path],
     top_n: Optional[int] = None,
+    input_type: str = "gene",
 ) -> List[RankedSiRNA]:
     """
     Rank siRNA candidates by their *naked (unmodified) silencing score*.
@@ -323,13 +332,20 @@ def rank_by_naked_score(
         mRNA sequence, FASTA file path, or inline FASTA text.
     top_n  : optional int
         Number of results to return (default: all).
+    input_type : str
+        "gene" (default) → sliding window across transcript.
+        "dsirna"        → single 21-mer via Dicer cleavage rule.
 
     Returns
     -------
     List[RankedSiRNA] sorted by naked score (best → worst).
     """
     seq = load_sequence(source)
-    candidates: List[SiRNACandidate] = generate_candidates(seq)
+    from .sirna_generator import generate_candidates, generate_dsirna_candidate
+    if input_type == "dsirna":
+        candidates: List[SiRNACandidate] = generate_dsirna_candidate(seq)
+    else:
+        candidates: List[SiRNACandidate] = generate_candidates(seq)
 
     if len(candidates) == 0:
         return []
@@ -404,6 +420,13 @@ def predict_modified(
     X_parent_v4 = extract_batch_v4([sense], [antisense])
     raw_naked = _predict_naked(X_parent_v4)
     parent_score = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
+    # Also compute Model B baseline (different feature space — 1242 vs 614 dims)
+    # so the UI can show the recalibrated baseline explicitly and avoid confusion
+    from .features import extract_positional_features_batch
+    X_parent_b = extract_positional_features_batch([sense], [antisense], [sense], [antisense])
+    model_b = _get_model("B")
+    raw_b = float(model_b.predict(X_parent_b)[0])
+    model_b_parent_raw = float(_normalize_scores(np.array([raw_b]), mode="identity")[0])
 
     # Step 2: generate cm-siRNA variants
     if mode == "scan":
@@ -450,8 +473,12 @@ def predict_modified(
 
     # Step 5: apply biophysical penalties + rank
     from .biophysics import adjusted_efficacy_score
-    # Also compute parent's adjusted score for fair delta comparison
+    # Parent adjusted using Model B baseline (same model as variants) for fair delta
     parent_adjusted, parent_penalties, _ = adjusted_efficacy_score(
+        model_b_parent_raw, sense, antisense, sense, antisense
+    )
+    # Also compute raw naked parent for the frontend to display both baselines
+    raw_parent_adjusted, _, _ = adjusted_efficacy_score(
         parent_score, sense, antisense, sense, antisense
     )
     order = np.argsort(scores)[::-1]
@@ -485,4 +512,6 @@ def predict_modified(
         ))
 
     return {"results": results, "parent_score": round(parent_adjusted, 2),
-            "parent_score_raw": round(parent_score, 2)}
+            "parent_score_raw": round(parent_score, 2),
+            "model_b_baseline": round(parent_adjusted, 2),
+            "naked_baseline": round(raw_parent_adjusted, 2)}

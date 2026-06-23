@@ -1,5 +1,12 @@
 # Biological & Biophysical Parameters: Concepts, Literature & Implementation
 
+> **Note:** This document describes the *composite-score architecture* from the earlier
+> HelixZero design (biophysics as separate weighted components). The **current system**
+> (`src/biophysics.py`) uses a **penalty-based adjustment**: `adjusted = raw - 0.70 × total_penalty`.
+> See [`docs/PENALTIES_REFERENCE.md`](PENALTIES_REFERENCE.md) for the current 5-domain
+> penalty system (risc max 50 with MOE/GNA/2'-F rules as of June 2026).
+> This document remains valuable for the biological concepts and literature references.
+
 ## Table of Contents
 
 1. [siRNA Mechanism of Action](#1-sirna-mechanism-of-action)

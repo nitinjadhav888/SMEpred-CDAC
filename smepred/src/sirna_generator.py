@@ -77,3 +77,37 @@ def generate_candidates(mrna: str) -> List[SiRNACandidate]:
         candidates.append(SiRNACandidate(position=i, sense=sense, antisense=antisense))
 
     return candidates
+
+
+# ─── DsiRNA (Dicer-substrate) mode ────────────────────────────────────────────
+
+def generate_dsirna_candidate(seq: str) -> List[SiRNACandidate]:
+    """
+    Extract the single active 21-mer from a 25–30 nt Dicer-substrate RNA input.
+
+    Dicer recognizes the 3' overhang of the DsiRNA duplex and cleaves ~21 nt from
+    that end, producing exactly one active siRNA.  The 5' 21 nt of the input
+    sequence become the sense (passenger) strand; the antisense (guide) is the
+    reverse complement.
+
+    Parameters
+    ----------
+    seq : str
+        DsiRNA sequence (25–30 nt, RNA, uppercase A/U/G/C).
+
+    Returns
+    -------
+    List[SiRNACandidate]
+        A single-element list containing the one expected 21-mer product.
+
+    Raises
+    ------
+    ValueError
+        If the input is shorter than 25 nt or longer than 30 nt.
+    """
+    SIRNA_LEN = 21
+    if len(seq) < 25 or len(seq) > 30:
+        raise ValueError(f"DsiRNA input must be 25–30 nt, got {len(seq)}.")
+    sense = seq[:SIRNA_LEN]
+    antisense = _reverse_complement(sense)
+    return [SiRNACandidate(position=0, sense=sense, antisense=antisense)]
