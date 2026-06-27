@@ -18,6 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
+from .utils import _gc_pct, _has_palindrome
+
 import pandas as pd
 
 _TOX_PATH = Path(__file__).parent.parent / "data" / "oligoformer" / "cell_viability.tsv"
@@ -133,22 +135,6 @@ def toxicity_for_modified(modified_antisense: str, base_antisense: str
 
 _FIVE_RUN = re.compile(r"A{5}|U{5}|G{5}|C{5}")
 _GC6 = [re.compile("".join(p)) for p in itertools.product("GC", repeat=6)]
-
-
-def _gc_pct(seq: str) -> float:
-    if not seq:
-        return 0.0
-    return (seq.count("G") + seq.count("C")) / len(seq) * 100.0
-
-
-def _has_palindrome(seq: str, half: int = 4) -> bool:
-    """Internal palindrome: a 4-mer whose reverse-complement appears downstream."""
-    trans = str.maketrans("AUCG", "UAGC")
-    for i in range(len(seq) - 2 * half + 1):
-        rc = seq[i:i + half][::-1].translate(trans)
-        if rc in seq[i + half:]:
-            return True
-    return False
 
 
 def functional_check(siRNA_strand: str) -> tuple[bool, str]:

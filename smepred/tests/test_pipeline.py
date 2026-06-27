@@ -10,7 +10,7 @@ import json
 import numpy as np
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+
 
 from src.parser import load_sequence, _normalize, _parse_fasta
 from src.sirna_generator import generate_candidates, _reverse_complement

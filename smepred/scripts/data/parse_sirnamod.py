@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from data.collect.clean_utils import clean_sequence, parse_efficacy, valid_length, CANONICAL
 
 SIRNAMOD = Path(r"C:\Helixx\Data-(1)-csv.csv.xls")

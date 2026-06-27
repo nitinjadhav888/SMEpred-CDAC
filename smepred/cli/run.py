@@ -37,8 +37,11 @@ import json
 from pathlib import Path
 
 import click
+import logging
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
 from src.predictor import rank_sirnas, rank_by_naked_score, predict_modified
 
 

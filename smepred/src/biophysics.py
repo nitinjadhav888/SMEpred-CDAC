@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Tuple
 
+from .utils import _gc_pct, _has_palindrome
+
 __all__ = [
     "adjusted_efficacy_score",
     "nuclease_penalty",
@@ -26,21 +28,6 @@ __all__ = [
 # ─── helpers ──────────────────────────────────────────────────────────────
 
 _MOD_2PRIME = frozenset("FMLEBD")
-
-
-def _gc_pct(seq: str) -> float:
-    if not seq:
-        return 0.0
-    return (seq.upper().count("G") + seq.upper().count("C")) / len(seq) * 100.0
-
-
-def _has_palindrome(seq: str, half: int = 4) -> bool:
-    trans = str.maketrans("AUGC", "UACG")
-    for i in range(len(seq) - 2 * half + 1):
-        rc = seq[i:i + half][::-1].translate(trans)
-        if rc in seq[i + half:]:
-            return True
-    return False
 
 
 def _has_homopolymer(seq: str, n: int = 5) -> bool:
@@ -302,13 +289,13 @@ def serum_penalty(sense: str, antisense: str,
     # sense 3'-conjugate ("4") provides steric nuclease shield.
     if antisense[0] not in ("S", "1"):
         total += 4
-    if antisense[20] not in ("S", "1"):
+    if len(antisense) > 20 and antisense[20] not in ("S", "1"):
         total += 3
 
     # Unprotected sense termini
     if sense[0] not in ("S", "4"):
         total += 3
-    if sense[20] not in ("S", "4"):
+    if len(sense) > 20 and sense[20] not in ("S", "4"):
         total += 2
 
     return min(total, 17.0)

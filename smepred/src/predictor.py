@@ -396,7 +396,7 @@ def predict_modified(
     sense_positions: str = "",
     antisense_mods: str = "",
     antisense_positions: str = "",
-) -> List[RankedCmSiRNA]:
+) -> dict:
     """
     Predict efficacy of chemically modified variants of a given siRNA.
     Unified model (Model B / HelixZero) is always used regardless of model_key.

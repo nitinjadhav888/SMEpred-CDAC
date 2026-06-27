@@ -35,8 +35,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import json
+import logging
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
 from src.predictor import rank_by_naked_score, predict_modified, _efficacy_label
 from src.biophysics import adjusted_efficacy_score
 
@@ -305,7 +308,7 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
                 "total_penalty": round(total_pen, 1),
                 "delta_score": round(v.delta_score, 2),
                 "efficacy_label": _efficacy_label(v.efficacy_score),
-                "penalties": {k: round(v, 1) for k, v in p.items()},
+                "penalties": {k: round(val, 1) for k, val in p.items()},
             }
             results.append(entry)
 

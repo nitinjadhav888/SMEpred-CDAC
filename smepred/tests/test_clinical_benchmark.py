@@ -12,7 +12,7 @@ Key checks:
   - No strand unmodified in seed (immuno penalty properly suppressed)
   - PS termini properly handled (nuclease + serum in check)
 """
-import sys; sys.path.insert(0, '.')
+import sys
 import warnings; warnings.filterwarnings('ignore')
 from src.biophysics import adjusted_efficacy_score
 from src.features import extract_positional_features_batch
@@ -147,5 +147,6 @@ for name, esc, escp, gna in RESULTS:
 
 print(f"\n  OVERALL: {'✅ ALL PASS' if ALL_PASS else '❌ SOME CHECKS FAILED'}")
 print(f"{'='*70}")
-import sys
-sys.exit(0 if ALL_PASS else 1)
+if __name__ == "__main__":
+    import sys
+    sys.exit(0 if ALL_PASS else 1)

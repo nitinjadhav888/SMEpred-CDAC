@@ -11,7 +11,7 @@ from sklearn.metrics import mean_absolute_error, r2_score
 from scipy.stats import pearsonr, spearmanr
 warnings.filterwarnings('ignore')
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from src.features import extract_positional_features_batch, _MOD_CHAR_MAP, _MOD_TYPES
 
 MODELS_DIR = Path(__file__).parent
