@@ -681,6 +681,14 @@ function setLoading(btnId, on) {
   btn.classList.toggle('loading', on);
 }
 
+function extractError(data) {
+  if (!data.detail) return 'Request failed';
+  if (Array.isArray(data.detail)) {
+    return data.detail.map(e => `${e.loc?.slice(-1) || 'Field'}: ${e.msg}`).join(' | ');
+  }
+  return data.detail;
+}
+
 function showError(elId, msg) {
   document.getElementById(elId).innerHTML =
     msg ? `<div class="error-box">⚠ ${msg}</div>` : '';
@@ -778,7 +786,7 @@ async function runRank() {
       })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Request failed');
+    if (!res.ok) throw new Error(extractError(data));
     renderRankResults(data);
   } catch(e) {
     showError('rank-error', e.message);
@@ -859,7 +867,7 @@ async function runSingleMod() {
       })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Request failed');
+    if (!res.ok) throw new Error(extractError(data));
     renderSingleModResults(data);
   } catch(e) {
     showError('sm-error', e.message);
@@ -901,7 +909,7 @@ async function loadMultiModFromVariant(idx) {
       })
     });
     const rdata = await res.json();
-    if (!res.ok) throw new Error(rdata.detail || 'Request failed');
+    if (!res.ok) throw new Error(extractError(rdata));
     renderAutoMultiModResults(rdata);
     showError('mm-error', `<div class="info-box">✓ Multi-mod scan for variant #${idx+1} complete. <strong>${rdata.total_variants}</strong> candidates (up to 5 modifications each, showing top 30). Top delta: <span style="color:var(--accent)">+${rdata.results[0]?.delta_score?.toFixed(2) || '—'}</span></div>`);
   } catch(e) {
@@ -1047,7 +1055,7 @@ async function runMultiMod() {
       })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Request failed');
+    if (!res.ok) throw new Error(extractError(data));
     renderMultiModResult(data);
   } catch(e) {
     showError('mm-error', e.message);
