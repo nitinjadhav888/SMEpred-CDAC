@@ -1,113 +1,137 @@
 """
-sirna_generator.py — 21-mer siRNA candidate generator.
+sirna_generator.py — 21-mer siRNA Candidate Generation Engine
 
-How siRNA works (plain English):
-  A siRNA is a 21-nucleotide double-stranded RNA molecule.
-  One strand (the 'sense' or 'passenger' strand) matches the mRNA target.
-  The other strand (the 'antisense' or 'guide' strand) is the reverse complement
-  of the sense strand. The antisense strand is loaded into the RISC complex, which
-  then finds and destroys matching mRNA, silencing the gene.
+Responsible for parsing full mRNA transcripts and generating overlapping 
+21-mer small interfering RNA (siRNA) candidate duplexes. 
 
-What this module does:
-  Slides a window of width 21 across the full mRNA sequence one nucleotide at a time.
-  Each window position gives one sense strand. We derive the antisense strand from it.
-  Result: (length_of_mRNA − 20) candidate siRNA pairs.
+Why 21-mers?
+The RNA-induced silencing complex (RISC) specifically requires 21-nucleotide 
+double-stranded RNAs to function efficiently. The engine physically slides a 
+21-nt window across the target mRNA, generating the exact target (Sense) strand 
+and deriving its reverse-complement (Antisense/Guide) strand for loading into Ago2.
 """
 
+import logging
 from dataclasses import dataclass
-from typing import List
+from typing import List, Dict, Any
+
+logger = logging.getLogger(__name__)
+
+# Translation table to compute the reverse complement of an RNA string
+_RNA_COMPLEMENT = str.maketrans("AUGC", "UACG")
 
 
-# ─── complement table (RNA) ───────────────────────────────────────────────────
-_COMPLEMENT = str.maketrans("AUGC", "UACG")
-
-
-def _reverse_complement(seq: str) -> str:
+def _calculate_reverse_complement(sequence: str) -> str:
     """
-    Derive the antisense strand.
-    Step 1: complement each base  (A↔U, G↔C).
-    Step 2: reverse the result    (5'→3' convention).
+    Computes the reverse-complement of an RNA sequence.
+    
+    Why: The Antisense (guide) strand is the exact reverse-complement of the Sense 
+    (passenger) strand. The Ago2 protein loads the Antisense strand in a 5' to 3' 
+    orientation to pair with the target mRNA. Therefore, we must complement the bases 
+    and reverse the string to maintain the 5' -> 3' biological standard.
+    
+    Args:
+        sequence (str): A 5' -> 3' RNA sequence (Sense strand).
+        
+    Returns:
+        str: The 5' -> 3' reverse-complemented RNA sequence (Antisense strand).
     """
-    return seq.translate(_COMPLEMENT)[::-1]
+    return sequence.translate(_RNA_COMPLEMENT)[::-1]
 
-
-# ─── data container ───────────────────────────────────────────────────────────
 
 @dataclass
 class SiRNACandidate:
-    """One 21-mer siRNA candidate with both strands."""
-    position: int        # 0-based start position in the mRNA
-    sense: str           # 21-mer matching the mRNA (5' → 3')
-    antisense: str       # reverse complement of sense (the guide strand, 5' → 3')
+    """
+    Represents a single 21-mer siRNA duplex candidate.
+    
+    Attributes:
+        position (int): 0-based start index of the candidate within the parent mRNA.
+        sense (str): The 5' -> 3' sequence perfectly matching the mRNA target region.
+        antisense (str): The 5' -> 3' guide strand that will be loaded into RISC.
+    """
+    position: int
+    sense: str
+    antisense: str
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes the candidate to a JSON-compatible dictionary for API responses."""
         return {
             "position": self.position,
-            "sense":    self.sense,
+            "sense": self.sense,
             "antisense": self.antisense,
         }
 
 
-# ─── public API ───────────────────────────────────────────────────────────────
-
-SIRNA_LEN = 21
-
-
-def generate_candidates(mrna: str) -> List[SiRNACandidate]:
+def generate_candidates(mrna_sequence: str) -> List[SiRNACandidate]:
     """
-    Slide a 21-nt window across the mRNA and return all siRNA candidates.
-
-    Parameters
-    ----------
-    mrna : str
-        Full mRNA/gene sequence (RNA, uppercase, only A/U/G/C).
-
-    Returns
-    -------
-    List[SiRNACandidate]
-        One entry per valid 21-mer position. Length = len(mrna) − 20.
+    Generates an exhaustive list of all possible 21-mer siRNA candidates.
+    
+    Why: To find the optimal siRNA, we must evaluate every possible binding site on 
+    the target mRNA. This function acts as a sliding window, moving 1 nucleotide at 
+    a time to generate a complete combinatorial set of candidates for downstream 
+    biophysical filtering and ML prediction.
+    
+    Args:
+        mrna_sequence (str): The full, normalized mRNA/gene sequence.
+        
+    Returns:
+        List[SiRNACandidate]: A complete list of all valid 21-mer siRNA pairs.
+        
+    Raises:
+        ValueError: If the mRNA sequence is shorter than 21 nucleotides.
     """
-    if len(mrna) < SIRNA_LEN:
-        raise ValueError(f"mRNA must be at least {SIRNA_LEN} nt long.")
+    sirna_length = 21
+    
+    if len(mrna_sequence) < sirna_length:
+        logger.error(f"Provided mRNA sequence is too short ({len(mrna_sequence)} nt).")
+        raise ValueError(f"mRNA must be at least {sirna_length} nucleotides long.")
 
-    candidates = []
-    for i in range(len(mrna) - SIRNA_LEN + 1):
-        sense = mrna[i : i + SIRNA_LEN]
-        antisense = _reverse_complement(sense)
-        candidates.append(SiRNACandidate(position=i, sense=sense, antisense=antisense))
+    candidates: List[SiRNACandidate] = []
+    total_candidates = len(mrna_sequence) - sirna_length + 1
+    
+    for i in range(total_candidates):
+        sense_strand = mrna_sequence[i : i + sirna_length]
+        antisense_strand = _calculate_reverse_complement(sense_strand)
+        candidates.append(
+            SiRNACandidate(
+                position=i, 
+                sense=sense_strand, 
+                antisense=antisense_strand
+            )
+        )
 
+    logger.info(f"Generated {len(candidates)} raw 21-mer candidates from mRNA input.")
     return candidates
 
 
-# ─── DsiRNA (Dicer-substrate) mode ────────────────────────────────────────────
-
-def generate_dsirna_candidate(seq: str) -> List[SiRNACandidate]:
+def generate_dsirna_candidate(dsirna_sequence: str) -> List[SiRNACandidate]:
     """
-    Extract the single active 21-mer from a 25–30 nt Dicer-substrate RNA input.
-
-    Dicer recognizes the 3' overhang of the DsiRNA duplex and cleaves ~21 nt from
-    that end, producing exactly one active siRNA.  The 5' 21 nt of the input
-    sequence become the sense (passenger) strand; the antisense (guide) is the
-    reverse complement.
-
-    Parameters
-    ----------
-    seq : str
-        DsiRNA sequence (25–30 nt, RNA, uppercase A/U/G/C).
-
-    Returns
-    -------
-    List[SiRNACandidate]
-        A single-element list containing the one expected 21-mer product.
-
-    Raises
-    ------
-    ValueError
-        If the input is shorter than 25 nt or longer than 30 nt.
+    Extracts the single active 21-mer from a 25–30 nt Dicer-substrate RNA (DsiRNA).
+    
+    Why: Dicer is an endogenous enzyme that processes longer double-stranded RNAs. 
+    It anchors at the 3' end and cleaves exactly ~21 nucleotides to produce a mature 
+    siRNA. This function mimics Dicer cleavage by extracting the terminal 21-mer 
+    from a user-provided DsiRNA sequence, allowing the model to predict the efficacy 
+    of the final biological product.
+    
+    Args:
+        dsirna_sequence (str): The DsiRNA sequence (25–30 nt).
+        
+    Returns:
+        List[SiRNACandidate]: A single-element list containing the mature 21-mer product.
+        
+    Raises:
+        ValueError: If the input is not within the biological 25-30 nt DsiRNA range.
     """
-    SIRNA_LEN = 21
-    if len(seq) < 25 or len(seq) > 30:
-        raise ValueError(f"DsiRNA input must be 25–30 nt, got {len(seq)}.")
-    sense = seq[:SIRNA_LEN]
-    antisense = _reverse_complement(sense)
-    return [SiRNACandidate(position=0, sense=sense, antisense=antisense)]
+    sirna_length = 21
+    
+    if not (25 <= len(dsirna_sequence) <= 30):
+        logger.error(f"Invalid DsiRNA length: {len(dsirna_sequence)} nt.")
+        raise ValueError(f"DsiRNA input must be 25–30 nt, got {len(dsirna_sequence)}.")
+        
+    # Mimic Dicer cleavage: Extract the 5' 21-mer
+    sense_strand = dsirna_sequence[:sirna_length]
+    antisense_strand = _calculate_reverse_complement(sense_strand)
+    
+    logger.info(f"Successfully processed DsiRNA sequence. Extracted mature 21-mer.")
+    return [SiRNACandidate(position=0, sense=sense_strand, antisense=antisense_strand)]

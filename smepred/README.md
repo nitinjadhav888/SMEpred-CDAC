@@ -1,210 +1,80 @@
-# HelixZero-CMS
+# HelixZero-CMS: Chemical Modification Scanner & Safety Engine
 
-**Chemical Modification Space Prediction for siRNA Therapeutics**
+HelixZero-CMS is a production-grade, state-of-the-art computational engine and API designed to optimize Small Interfering RNA (siRNA) therapeutics. It provides end-to-end Machine Learning-driven prediction of unmodified (naked) siRNA silencing efficacy, exhaustive chemical modification scanning, and transcriptome-wide biological safety validation.
 
-HelixZero-CMS predicts the silencing efficacy of chemically modified siRNA candidates. Given a 21-nt siRNA duplex, it scores 1,302 single-modification variants (31 symbols × 21 positions × 2 strands) and performs beam search across the multi-modification space (up to 14 simultaneous modifications) — all in ~20 seconds per sequence.
+Designed for clinical development teams and RNAi scientists, this framework drastically reduces the search space for potent, safe, and stable siRNA drugs.
 
-Live Web UI at `http://localhost:8000` (see [Installation](#installation)).
+## Key Capabilities
 
----
+*   **Baseline Efficacy Ranking:** Evaluates every 21-mer candidate derived from a target transcript, applying thermodynamic boundaries (Reynolds/Ui-Tei rules) and a trained LightGBM model to predict raw silencing efficacy.
+*   **Chemical Modification Scanning:** Rapidly scans the combinatoric chemical space of an siRNA candidate. Evaluates all 1,260 single-modification variants across 30 clinically relevant chemical moieties (e.g., 2'-OMe, 2'-F, LNA, GalNAc, Phosphorothioate linkages).
+*   **Beam Search Combinatorial Design:** Autonomously stacks the most potent single modifications using a heuristic beam search to yield synergistic multi-modified siRNA designs.
+*   **Biophysical & Pharmacokinetic Penalties:** Predicts sequence stability and loading potential, applying penalizations for lack of nuclease shielding, missing delivery conjugates, and steric RISC hindrance.
+*   **Transcriptome-Wide Safety Validation:** Scans the siRNA seed and full length against the entire human transcriptome to mitigate catastrophic off-target slicing and innate immunostimulatory (TLR7/8) activation.
 
-## What It Solves
+## System Architecture
 
-| Problem | Magnitude |
-|---------|-----------|
-| Single-mod enumeration | 31 mods × 21 pos × 2 strands = **1,302** variants per siRNA |
-| Multi-mod space (14 max) | Σ C(1,302, k) for k=1..14 ≈ **10⁶⁸** combinatorial candidates |
-| Beam search traversal | ~35k candidates evaluated in **~20 seconds** |
-| Biophysics integration | **5 orthogonal penalty domains** (28+ literature citations) |
-| Clinical validation | **ESC/ESC+ designs** score ≥50, PK bounds satisfied |
+The repository is modularized following strict multi-national corporation (MNC) production standards:
 
----
-
-## Installation
-
-```bash
-pip install -e .
-uvicorn api.main:app --reload --port 8000
-# → http://localhost:8000
-```
-
-**Requires**: Python 3.10+, LightGBM 4.x, scikit-learn 1.6+, NumPy, Pandas, FastAPI, Uvicorn.
-
----
-
-## Model Accuracy
-
-| Model | Features | Rows | PCC | Spearman | Trees | Leaves |
-|-------|----------|------|-----|----------|-------|--------|
-| **Naked V4** (unmodified screening) | 214-d sequence | 83,535 | 0.55 | — | — | — |
-| **HelixZero v4** (Model B) | **1,467-d** position-aware | 83,535 | **0.822** | **0.823** | 1,115 | 127 |
-
----
-
-## 6-Step Workflow
-
-```
-┌─────┐  ┌──────┐  ┌────────┐  ┌──────────┐  ┌───────────┐  ┌───────┐
-│Input│→ │Rank  │→ │Select  │→ │Single-Mod│→ │Multi-Mod  │→ │Export │
-│Seq  │  │Tab   │  │Best Hit│  │Scan      │  │Beam Search│  │JSON   │
-└─────┘  └──────┘  └────────┘  └──────────┘  └───────────┘  └───────┘
-         (gene or      1,302       beam width=30
-          dsirna       variants    max_mods=14
-          mode)                    ~20 seconds
-```
-
----
-
-## Web UI (4 Tabs)
-
-### 1. 🔬 Rank siRNAs
-- **Input**: mRNA/gene sequence or FASTA file.
-- **Input type**: `Gene/Transcript` (sliding window) or `DsiRNA (27-mer)` (Dicer cleavage).
-- **Output**: All 21-mer candidates sorted by Naked Model score, with seed toxicity and functional checks. Click `Multi-Mod` on any row to jump directly to a beam search.
-
-### 2. 🔧 Single-Mod Scan
-- **Input**: 21-nt sense + antisense strands.
-- **Output**: All 1,302 single-mod variants ranked by Model B efficacy with biophysical penalty breakdown and seed toxicity.
-- Shows **dual baselines**: Naked Model (from Rank tab) vs Model B (recalibrated for chemical space).
-
-### 3. 🔄 Multi-Mod (Beam Search)
-- **Input**: 21-nt sense + antisense strands. Optional manual modification strings.
-- **Output**: Top multi-mod candidates scored by Model B with delta vs parent.
-- Uses plateau-based early stopping (stops when best score improves <0.5 over 3 rounds).
-- Expandable rows show color-coded sequence heatmaps with penalty details.
-
-### 4. 📖 Modifications
-- Complete legend of all 31 modification symbols with names and chemical types. Tap to copy any symbol.
-
----
-
-## Biophysical Penalties
-
-Five orthogonal domains adjust the raw efficacy score — strictly non-overlapping to prevent double-counting.
-
-```
-adjusted = max(0, min(100, raw − 0.70 × total_penalty))
-```
-
-| Domain | Range | What It Checks |
-|--------|-------|----------------|
-| **Nuclease** | 0–16 | PS backbone coverage, 2'-mod density (endo-nuclease). No termini. |
-| **Immunogenicity** | 0–28 | Unmodified U in seed (+2 each), tail (+0.5), sense (+1); GU-rich motifs GUUGU/GUGU/UGU (non-stacking); over-methylation (M>24). |
-| **RISC Loading** | −10 to 60 | 5'-P, seed mods (UNA@7 exempt), LNA/MOE/GNA/ENA/TNA position rules, GNA@6-8 bonus (−2), 2'-F deficiency, exotic micro-penalties. |
-| **Thermo** | 0–20 | GC extremes, palindrome, homopolymer, GC runs. |
-| **Serum** | 0–17 | Termini protection (PS, 5'-PO₄, GalNAc). No density checks. |
-
-**Key calibrations** (C-DAC panel review, June 2026):
-- Seed U penalty: +4 → **+2.0**
-- Tail U penalty: +1 → **+0.5**
-- Over-methylation threshold: >16 → **>24**
-- Nuclease/serum orthogonality enforced (no cross-module double-counting)
-- Motif detection: non-stacking hierarchical (GUUGU→GUGU→UGU)
-
----
-
-## API Reference
-
-### POST `/rank`
-
-```json
-// Request
-{ "sequence": "AUGCAUGCAUG...", "top_n": 20, "input_type": "gene" }
-// Response
-{ "total_candidates": 42, "input_type": "gene", "results": [...] }
-```
-
-### POST `/single-mod`
-
-```json
-// Request
-{ "sense": "GGAAAUAGACACCAAAUCUUA", "antisense": "UAAGAUUUGGUGUCUAUUUCC", "full_scan": false }
-// Response
-{ "parent_score": 29.88, "naked_baseline": 27.09, "model_b_baseline": 29.88,
-  "total_variants": 1302, "model": "B", "results": [...] }
-```
-
-### POST `/multi-mod`
-
-```json
-// Request
-{ "sense": "GGAAAUAGACACCAAAUCUUA", "antisense": "UAAGAUUUGGUGUCUAUUUCC",
-  "sense_mods": "F,,M", "sense_positions": "2,5,,10,12", "antisense_mods": "", "antisense_positions": "" }
-```
-
-### POST `/multi-mod-scan`
-
-```json
-// Request
-{ "sense": "...", "antisense": "...", "max_mods": 14, "beam_width": 30, "full_scan": true }
-// Response
-{ "parent_score": 29.88, "naked_baseline": 27.09, "model_b_baseline": 29.88,
-  "total_variants": 352, "results": [...] }
-```
-
-### GET `/modifications`
-
-Returns all 31 modification symbols with `{"canonical": [...], "modifications": [...]}`.
-
----
-
-## CLI Reference
-
-```bash
-python cli/run.py rank --seq "AUGCAUG..." --top-n 10
-python cli/run.py single-mod --sense "..." --antisense "..." --top-n 20
-python cli/run.py multi-mod --sense "..." --antisense "..." --sense-mods "M,F" --sense-pos "2,5"
-python cli/run.py multi-mod-scan --sense "..." --antisense "..." --max-mods 14 --beam-width 30
-```
-
----
-
-## Project Structure
-
-```
-smepred/
-├── app.html                  # Single-file web UI
-├── api/main.py               # FastAPI server (9 endpoints)
-├── cli/run.py                # Command-line interface
+```text
+HelixZero-CMS/
+│
+├── api/
+│   └── main.py                 # FastAPI REST application exposing core functionality
+│
 ├── src/
-│   ├── predictor.py          # Unified prediction (2 models)
-│   ├── sirna_generator.py    # Candidate generation (gene + DsiRNA)
-│   ├── features.py           # Feature extraction (214-d + 1,467-d)
-│   ├── modification_engine.py # 31 mod symbols, beam search
-│   ├── biophysics.py         # 5-domain orthgonal penalties
-│   ├── filters.py            # Toxicity + functional checks
-│   └── parser.py             # Sequence I/O
-├── models/                   # LightGBM .pkl files
-├── data/                     # Toxicity tables, mod definitions
-├── tests/                    # 32 unit tests + clinical benchmark
-├── docs/                     # Full architecture + validation docs
-└── scripts/                  # Training + paper generation
+│   ├── predictor.py            # ML orchestration: prediction, feature building, and ranking
+│   ├── modification_engine.py  # Combinatorial generation and beam search logic
+│   ├── offtarget.py            # Transcriptome-wide heuristic safety validation engine
+│   ├── biophysics.py           # Biophysical penalty calculation (PK, RISC, Immuno, Nuclease)
+│   ├── features.py             # Feature extraction for Models (Naked & Unified)
+│   ├── filters.py              # Tox-seed mitigation and sequence baseline functional filtering
+│   ├── parser.py               # Robust sequence and FASTA parsing utilities
+│   ├── utils.py                # Core constants, utilities, and helper functions
+│   └── download_transcriptome.py # Utility to acquire human reference sequences
+│
+├── models/
+│   └── lgb_..._model.txt       # Pre-trained LightGBM gradient boosting artifacts
+│
+├── data/
+│   ├── modification_codes.json # Nomenclature library mapping chemical moieties
+│   └── human_transcriptome.fasta # Transcriptomic baseline for safety scans
+│
+├── app.html                    # Single-Page Application (SPA) frontend interface
+└── docs/                       # Auto-generated Clinical Safety Certificates
 ```
 
----
+## Scientific Logic & Validation
 
-## Evaluation & Validation
+This framework enforces rigorous scientific heuristics based on modern siRNA literature:
 
-| Test | Status | Coverage |
-|------|--------|----------|
-| Pipeline unit tests | **32/32 PASS** | Features, biophysics all 5 domains, modification engine |
-| Clinical benchmark | **4/4 PASS** | ESC/ESC+ designs ≥50, PK bounds, GNA@7 −2 delta |
-| Dual baseline verification | **Verified** | Both Naked (27.09) and Model B (29.88) reported |
-| Biophysics orthogonality | **Verified** | Nuclease ≠ serum, no cross-module double-counting |
+1.  **Thermodynamic Asymmetry:** Calculates 5' end ΔG differentials to predict Strand Bias, ensuring the antisense strand is preferentially loaded into the Ago2 RISC complex.
+2.  **Slicer-Mediated (15-mer) Off-Targets:** Employs optimized string matching to absolutely reject any candidate sharing a 15-nucleotide contiguous identical match with an unintended transcript.
+3.  **Seed-Mediated (miRNA-like) Mitigation:** Cross-references the seed region against the transcriptome to quantify partial matches. The penalty is drastically mitigated if specific chemical modifications (e.g., 2'-OMe) are placed at precise seed locations (pos 2 or 7) to structurally inhibit miRNA-like binding (Jackson et al., 2006).
+4.  **Innate Immunogenicity Masking:** Scans for recognized Toll-Like Receptor (TLR7/TLR8) sequence motifs (e.g., `UGGC`, `GUUC`) and enforces 2'-O-methyl masking at the precise motif indices to evade interferon response cascades.
+5.  **Toxicity Lookup:** Uses empirical cell-viability metrics (Janas et al., 2018) for 6-mer seed regions to predict base cytotoxicity, overriding warnings when clinical modifications are applied.
 
----
+## Setup & Installation
 
-## Citation
+**Prerequisites:** Python 3.10+
 
-If you use HelixZero-CMS in your research, please cite:
+1.  **Install Requirements:**
+    ```bash
+    pip install fastapi uvicorn pydantic pandas numpy lightgbm joblib
+    ```
 
-```
-Nitin Jadhav. "HelixZero-CMS: Chemical Modification Space Prediction for
-siRNA Therapeutics." CDAC-Pune HPC-M&BA, 2026.
-```
+2.  **Acquire Transcriptome Baseline:**
+    Before utilizing the off-target module, download the reference transcriptome:
+    ```bash
+    python src/download_transcriptome.py
+    ```
 
----
+3.  **Start the REST API:**
+    ```bash
+    uvicorn api.main:app --reload --port 8000
+    ```
+    *The Single Page Application is served automatically at `http://localhost:8000/`.*
 
-## License
+## License & Usage
 
-Research use only. Not approved for clinical decision-making.
+This project is intended for research and discovery optimization within computational biology and RNAi therapeutics. All models and generated candidates must be empirically validated in *in vitro* and *in vivo* clinical settings.

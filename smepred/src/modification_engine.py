@@ -1,179 +1,186 @@
 """
-modification_engine.py — Chemical modification generator.
+modification_engine.py — Chemical Modification Generator
 
-Two modes (inspired by the SMEpred approach, Dar et al. 2016):
+This module applies chemical modifications to siRNA candidates. It supports
+three distinct operation modes:
 
-MODE 1 — Single-Modification Scan
-  For one chosen siRNA, systematically apply each of the 30 chemical
-  modifications at every position (1–21) on both strands.
-  Total variants = 30 modifications × 21 positions × 2 strands = 1260 cm-siRNAs.
-  This lets you see which modification at which position maximally improves efficacy.
+1. Single-Modification Scan
+   Systematically applies each of the 30 chemical modification symbols to every 
+   position (1-21) on both strands of a parent siRNA. This generates an exhaustive 
+   1260-variant library to identify the single most effective modification point.
 
-MODE 2 — MultiModGen (custom multiple modifications)
-  User specifies one or more modification types and a list of positions for each.
-  Multiple modification types are separated by ',,'.
-  Example:
-    siRNA:     GCAGCACGACUUCUUCAAGUU
-    mods:      F,,M
-    positions: 2,5,7,,10,12
-  This means: apply 2'-Fluoro (F) at positions 2,5,7 AND 2'-OMe (M) at positions 10,12
-  on the sense strand. Same for antisense if specified.
-  Generates one cm-siRNA per combination submitted.
+2. MultiModGen (Targeted Custom Modifications)
+   Allows the user or downstream algorithms to apply specific modifications to 
+   targeted positions across both strands simultaneously.
 
-Sequence format:
-  A cm-siRNA is stored as: <modified_sense>-<modified_antisense>
-  Each position in the sequence is the nucleotide symbol (A/U/G/C) replaced by
-  the modification symbol (e.g. F for 2'-Fluoro) at modified positions.
-  Example: GFAGFACGACUUCUUCAAGUU-CUUGAAGAAGUCGUGCUGCUU
-  (F at positions 2 and 4 on the sense strand).
+3. Beam Search Scan
+   An intelligent, iterative search algorithm that combines top-performing single 
+   modifications into multi-mod combinations, scoring them in rounds to find the 
+   global biophysical optimum without brute-forcing millions of combinations.
 """
 
 import json
-from copy import deepcopy
+import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any, Set, Dict
 
-# ─── load modification symbols ────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
+
+# ─── Load Modification Definitions ──────────────────────────────────────────────
 
 _MOD_FILE = Path(__file__).parent.parent / "data" / "modification_codes.json"
-with _MOD_FILE.open() as _f:
-    _MOD_DATA = json.load(_f)
+try:
+    with _MOD_FILE.open("r", encoding="utf-8") as _f:
+        _MOD_DATA = json.load(_f)
+    CANONICAL_SYMBOLS: Set[str] = set(_MOD_DATA["canonical_symbols"])
+    MODIFICATION_SYMBOLS: Set[str] = set(_MOD_DATA["modification_symbols"])
+except Exception as e:
+    logger.error(f"Failed to load modification codes: {e}")
+    raise RuntimeError(f"Could not initialize modification engine: {e}")
 
-CANONICAL_SYMBOLS = set(_MOD_DATA["canonical_symbols"])        # A U G C T
-MODIFICATION_SYMBOLS = set(_MOD_DATA["modification_symbols"])  # 30 mod symbols
 
-
-# ─── data container ───────────────────────────────────────────────────────────
+# ─── Data Transfer Objects ────────────────────────────────────────────────────
 
 @dataclass
 class CmSiRNA:
-    """One chemically modified siRNA variant."""
-    sense: str                  # modified sense strand
-    antisense: str              # modified antisense strand (may also be modified)
-    mod_symbol: str             # which modification was applied (e.g. "E" or "E+E")
-    mod_position: int           # 1-based position of modification (first position for multi-mod)
-    mod_strand: str             # "sense" or "antisense" (or "sense+sense" for multi-mod)
-    parent_sense: str           # original unmodified sense strand
-    parent_antisense: str       # original unmodified antisense strand
-    mod_positions: str = ""     # all positions as comma-separated string for multi-mod (e.g. "4,6")
+    """
+    Represents a Chemically Modified siRNA (cm-siRNA) variant.
+    
+    Attributes:
+        sense (str): The chemically modified sense strand.
+        antisense (str): The chemically modified antisense strand.
+        mod_symbol (str): The symbol(s) representing the applied chemistry.
+        mod_position (int): The 1-based index of the primary modification.
+        mod_strand (str): The strand on which the modification occurs.
+        parent_sense (str): The unmodified biological sense strand.
+        parent_antisense (str): The unmodified biological antisense strand.
+        mod_positions (str): Comma-separated list of all modified positions (for multi-mod).
+        efficacy_score (float): The final biophysically adjusted efficacy score.
+        delta_score (float): Efficacy improvement/loss relative to the parent.
+        penalties (dict): Breakdown of biophysical penalties applied.
+    """
+    sense: str
+    antisense: str
+    mod_symbol: str
+    mod_position: int
+    mod_strand: str
+    parent_sense: str
+    parent_antisense: str
+    mod_positions: str = ""
+    efficacy_score: float = 0.0
+    delta_score: float = 0.0
+    penalties: Optional[Dict[str, float]] = None
 
-    def to_dict(self) -> dict:
-        return {
-            "sense":           self.sense,
-            "antisense":       self.antisense,
-            "mod_symbol":      self.mod_symbol,
-            "mod_position":    self.mod_position,
-            "mod_strand":      self.mod_strand,
-            "parent_sense":    self.parent_sense,
+    def to_dict(self) -> Dict[str, Any]:
+        result = {
+            "sense": self.sense,
+            "antisense": self.antisense,
+            "mod_symbol": self.mod_symbol,
+            "mod_position": self.mod_position,
+            "mod_strand": self.mod_strand,
+            "parent_sense": self.parent_sense,
             "parent_antisense": self.parent_antisense,
+            "mod_positions": self.mod_positions,
         }
+        if self.efficacy_score:
+            result["efficacy_score"] = self.efficacy_score
+        if self.delta_score:
+            result["delta_score"] = self.delta_score
+        if self.penalties:
+            result["penalties"] = self.penalties
+        return result
 
 
-# ─── helpers ──────────────────────────────────────────────────────────────────
+# ─── Helper Functions ─────────────────────────────────────────────────────────
 
-def _apply_mod(seq: str, position_1based: int, symbol: str) -> str:
+def _apply_mod(sequence: str, position_1based: int, symbol: str) -> str:
     """
-    Replace the nucleotide at `position_1based` (1-indexed) with `symbol`.
-    Returns the modified sequence string.
+    Replaces a specific nucleotide with a chemical modification symbol.
     """
-    if not (1 <= position_1based <= len(seq)):
+    if not (1 <= position_1based <= len(sequence)):
+        logger.error(f"Position {position_1based} out of bounds for sequence length {len(sequence)}")
         raise ValueError(
-            f"Position {position_1based} is out of range for sequence of length {len(seq)}."
+            f"Position {position_1based} is out of range for sequence of length {len(sequence)}."
         )
-    idx = position_1based - 1
-    return seq[:idx] + symbol + seq[idx + 1:]
+    zero_indexed = position_1based - 1
+    return sequence[:zero_indexed] + symbol + sequence[zero_indexed + 1:]
 
 
 def _parse_multimod_input(
-    mods_str: str, positions_str: str
+    mod_symbols_str: str, positions_str: str
 ) -> List[Tuple[str, List[int]]]:
     """
-    Parse MultiModGen input.
-
-    mods_str      : modification symbols separated by ',,' for multiple types
-                    e.g. "F,,M"
-    positions_str : corresponding positions separated by ',' within a group,
-                    groups separated by ',,'.
-                    e.g. "2,5,7,,10,12"
-
-    Returns list of (symbol, [positions]) tuples.
+    Parses comma-delimited strings defining targeted modifications.
+    Format: "F,,M" and "2,5,7,,10,12" -> Apply F at 2,5,7 and M at 10,12.
     """
-    mod_groups = [m.strip() for m in mods_str.split(",,")]
+    mod_groups = [m.strip() for m in mod_symbols_str.split(",,")]
     pos_groups = [p.strip() for p in positions_str.split(",,")]
 
     if len(mod_groups) != len(pos_groups):
         raise ValueError(
-            "Number of modification groups must equal number of position groups. "
-            "Separate groups with ',,'."
+            "Mismatched group count: Number of modification groups must equal number of position groups."
         )
 
-    result = []
-    for sym, pos_str in zip(mod_groups, pos_groups):
-        sym = sym.strip()
-        if sym not in MODIFICATION_SYMBOLS | CANONICAL_SYMBOLS:
-            raise ValueError(f"Unknown modification symbol: '{sym}'")
-        positions = [int(p.strip()) for p in pos_str.split(",") if p.strip()]
-        result.append((sym, positions))
-    return result
+    parsed_instructions = []
+    for symbol, pos_string in zip(mod_groups, pos_groups):
+        clean_symbol = symbol.strip()
+        if clean_symbol not in MODIFICATION_SYMBOLS | CANONICAL_SYMBOLS:
+            logger.error(f"Unknown modification symbol detected: {clean_symbol}")
+            raise ValueError(f"Unknown modification symbol: '{clean_symbol}'")
+            
+        parsed_positions = [int(p.strip()) for p in pos_string.split(",") if p.strip()]
+        parsed_instructions.append((clean_symbol, parsed_positions))
+        
+    return parsed_instructions
 
 
-# ─── Mode 1: single-modification scan ─────────────────────────────────────────
+# ─── Mode 1: Single-Modification Scan ─────────────────────────────────────────
 
 def single_mod_scan(
     sense: str,
     antisense: str,
-    mod_symbols: Optional[List[str]] = None,
+    target_symbols: Optional[List[str]] = None,
 ) -> List[CmSiRNA]:
     """
-    Apply each modification type at each position on both strands.
-
-    Parameters
-    ----------
-    sense        : 21-nt sense strand sequence
-    antisense    : 21-nt antisense strand sequence
-    mod_symbols  : list of modification symbols to apply.
-                   Defaults to all 30 modification symbols.
-
-    Returns
-    -------
-    List[CmSiRNA] — up to 30 × 21 × 2 = 1260 variants.
+    Generates an exhaustive single-modification combinatorial library.
     """
-    if mod_symbols is None:
-        mod_symbols = list(MODIFICATION_SYMBOLS)
+    if target_symbols is None:
+        target_symbols = list(MODIFICATION_SYMBOLS)
 
-    results: List[CmSiRNA] = []
+    generated_variants: List[CmSiRNA] = []
 
-    for sym in mod_symbols:
-        # modify each position on sense strand
+    for symbol in target_symbols:
+        # Scan sense strand
         for pos in range(1, len(sense) + 1):
-            mod_sense = _apply_mod(sense, pos, sym)
-            results.append(CmSiRNA(
-                sense=mod_sense,
+            modified_sense = _apply_mod(sense, pos, symbol)
+            generated_variants.append(CmSiRNA(
+                sense=modified_sense,
                 antisense=antisense,
-                mod_symbol=sym,
+                mod_symbol=symbol,
                 mod_position=pos,
                 mod_strand="sense",
                 parent_sense=sense,
                 parent_antisense=antisense,
             ))
-        # modify each position on antisense strand (independent length)
+            
+        # Scan antisense strand
         for pos in range(1, len(antisense) + 1):
-            mod_antisense = _apply_mod(antisense, pos, sym)
-            results.append(CmSiRNA(
+            modified_antisense = _apply_mod(antisense, pos, symbol)
+            generated_variants.append(CmSiRNA(
                 sense=sense,
-                antisense=mod_antisense,
-                mod_symbol=sym,
+                antisense=modified_antisense,
+                mod_symbol=symbol,
                 mod_position=pos,
                 mod_strand="antisense",
                 parent_sense=sense,
                 parent_antisense=antisense,
             ))
 
-    return results
+    return generated_variants
 
 
-# ─── Mode 2: MultiModGen ──────────────────────────────────────────────────────
+# ─── Mode 2: Targeted MultiModGen ─────────────────────────────────────────────
 
 def multimod_gen(
     sense: str,
@@ -184,45 +191,30 @@ def multimod_gen(
     antisense_positions: str = "",
 ) -> CmSiRNA:
     """
-    Apply multiple custom modifications to a siRNA at user-specified positions.
-
-    Parameters
-    ----------
-    sense              : 21-nt sense strand
-    antisense          : 21-nt antisense strand
-    sense_mods         : modification symbols for sense strand e.g. "F,,M"
-    sense_positions    : positions for sense strand mods e.g. "2,5,7,,10,12"
-    antisense_mods     : modification symbols for antisense strand (same format)
-    antisense_positions: positions for antisense strand mods
-
-    Returns
-    -------
-    CmSiRNA with both strands modified as specified.
+    Applies precise, targeted modifications simultaneously across both strands.
     """
-    mod_sense = list(sense)
-    mod_antisense = list(antisense)
+    mutable_sense = list(sense)
+    mutable_antisense = list(antisense)
 
-    # apply sense strand modifications
     if sense_mods and sense_positions:
-        ss_groups = _parse_multimod_input(sense_mods, sense_positions)
-        for sym, positions in ss_groups:
+        sense_instructions = _parse_multimod_input(sense_mods, sense_positions)
+        for symbol, positions in sense_instructions:
             for pos in positions:
-                if not (1 <= pos <= len(mod_sense)):
+                if not (1 <= pos <= len(mutable_sense)):
                     raise ValueError(f"Sense position {pos} out of range.")
-                mod_sense[pos - 1] = sym
+                mutable_sense[pos - 1] = symbol
 
-    # apply antisense strand modifications
     if antisense_mods and antisense_positions:
-        as_groups = _parse_multimod_input(antisense_mods, antisense_positions)
-        for sym, positions in as_groups:
+        antisense_instructions = _parse_multimod_input(antisense_mods, antisense_positions)
+        for symbol, positions in antisense_instructions:
             for pos in positions:
-                if not (1 <= pos <= len(mod_antisense)):
+                if not (1 <= pos <= len(mutable_antisense)):
                     raise ValueError(f"Antisense position {pos} out of range.")
-                mod_antisense[pos - 1] = sym
+                mutable_antisense[pos - 1] = symbol
 
     return CmSiRNA(
-        sense="".join(mod_sense),
-        antisense="".join(mod_antisense),
+        sense="".join(mutable_sense),
+        antisense="".join(mutable_antisense),
         mod_symbol="multi",
         mod_position=0,
         mod_strand="both",
@@ -231,8 +223,7 @@ def multimod_gen(
     )
 
 
-# ─── Mode 3: Multi-Modification Beam Search Scan ────────────────────────────────
-# Builds on single-mod scan: take top-K single hits, combine, re-score, iterate.
+# ─── Mode 3: Combinatorial Beam Search Scan ───────────────────────────────────
 
 def multi_mod_scan(
     sense: str,
@@ -241,219 +232,200 @@ def multi_mod_scan(
     beam_width: int = 20,
     model_key: str = "B",
     full_scan: bool = False,
-    single_results: Optional[List] = None,
+    single_results: Optional[List[Any]] = None,
     parent_score: Optional[float] = None,
-    seed_variant: Optional[object] = None,
+    seed_variant: Optional[Any] = None,
     calibrator_key: Optional[str] = None,
     normalize_mode: str = "clip",
 ) -> List[CmSiRNA]:
     """
-    Beam-search multi-modification scan.
-
-    1. Run single-mod scan (or mini-scan) to get top-K single-mod hits
-    2. Combine top hits into 2-mod candidates (deduped, order-independent)
-    3. Score 2-mod candidates, keep top-K
-    4. Repeat for 3-mod, 4-mod, … up to max_mods
-    5. Return all scored variants sorted by efficacy
-
-    When seed_variant is provided, it is placed at the top of the initial beam
-    so the search explores multi-mod combinations built on top of it.
-
-    Parameters
-    ----------
-    sense, antisense : parent siRNA
-    max_mods         : maximum modifications per variant (2+)
-    beam_width       : keep top-K at each expansion step
-    model_key        : "A", "B", or "C" for scoring
-    full_scan        : if True, use full 1260 single-mod scan; else 40-variant mini-scan
-    single_results   : optional pre-computed single-mod results (list of RankedCmSiRNA)
-    parent_score     : optional pre-computed parent score (required if single_results provided)
-    seed_variant     : optional single-mod variant to seed the beam
-    calibrator_key   : calibrator key for _normalize_scores (used when normalize_mode="calibrate")
-    normalize_mode   : "clip" — raw clip to [0,100]
-                       "calibrate" — isotonic calibration
-                       "rescale" — linear rescale to known model max (113.8)
-
-    Returns
-    -------
-    List[CmSiRNA] sorted best -> worst by efficacy_score
+    Heuristically explores the vast combinatoric space of multi-modified siRNAs.
+    Uses an iterative beam search to stack highly effective modifications while 
+    pruning sub-optimal branches to avoid computational explosion.
     """
-    # Lazy import to avoid circular deps
-    from .predictor import predict_modified
-    import numpy as np
-
-    # Step 1: get single-mod results (includes parent score)
-    if single_results is None:
-        single_out = predict_modified(sense, antisense, mode="scan", model_key=model_key, full_scan=full_scan)
-        parent_score = single_out.get("parent_score_raw", single_out["parent_score"])
-        single_results = single_out["results"]
-    elif parent_score is None:
-        raise ValueError("parent_score must be provided when single_results is given")
-
-    # Diversify beam: guarantee representation from every mod type
+    # Lazy imports required to prevent circular dependency with predictor.py
+    from .predictor import predict_modified, _get_model, _normalize_scores
+    from .features import extract_positional_features_batch
+    from .biophysics import calculate_adjusted_efficacy
     from collections import defaultdict
-    per_mod: dict = defaultdict(list)
-    for r in single_results:
-        per_mod[r.mod_symbol].append(r)
 
-    for sym, entries in per_mod.items():
-        entries.sort(key=lambda r: r.efficacy_score, reverse=True)
+    logger.info("Starting combinatorial beam search.")
 
-    # Round-robin pick: 1st from every mod type, then 2nd, etc. up to beam_width
-    diversified: list = []
-    max_per = max(len(lst) for lst in per_mod.values())
-    for rank in range(max_per):
-        for sym in sorted(per_mod.keys()):
-            if rank < len(per_mod[sym]):
-                diversified.append(per_mod[sym][rank])
-            if len(diversified) >= beam_width:
-                break
-        if len(diversified) >= beam_width:
-            break
-
-    # Build initial beam — seed_variant first, then fill with diversified results
-    beam_raw: list = []
-    if seed_variant is not None:
-        beam_raw.append(seed_variant)
-    for r in diversified:
-        if len(beam_raw) >= beam_width:
-            break
-        beam_raw.append(r)
-
-    # Convert to CmSiRNA with scored efficacy (re-score with the correct normalize_mode)
-    beam: List[CmSiRNA] = []
-    for r in beam_raw:
-        v = CmSiRNA(
-            sense=r.sense,
-            antisense=r.antisense,
-            mod_symbol=r.mod_symbol,
-            mod_position=r.mod_position,
-            mod_strand=r.mod_strand,
-            parent_sense=sense,
-            parent_antisense=antisense,
+    if single_results is None:
+        prediction_output = predict_modified(
+            sense, antisense, mode="scan", model_key=model_key, full_scan=full_scan
         )
-        v.efficacy_score = r.efficacy_score
-        v.delta_score = r.delta_score
-        beam.append(v)
+        parent_score = prediction_output.get("parent_score_raw", prediction_output["parent_score"])
+        single_results = prediction_output["results"]
+    elif parent_score is None:
+        raise ValueError("parent_score must be provided when single_results is pre-calculated.")
 
-    # Helper: predict efficacy for a batch of variants
-    def score_variants(variants: List[CmSiRNA]) -> List[CmSiRNA]:
-        if not variants:
-            return []
-        from .features import extract_positional_features_batch
-        from .predictor import _get_model, _normalize_scores
-        from .biophysics import adjusted_efficacy_score
-
-        s_list = [v.sense for v in variants]
-        a_list = [v.antisense for v in variants]
-        bs_list = [v.parent_sense for v in variants]
-        ba_list = [v.parent_antisense for v in variants]
-
-        X = extract_positional_features_batch(s_list, a_list, bs_list, ba_list)
-        model = _get_model("B")
-        raw = model.predict(X)
-        raw_scores = _normalize_scores(raw, mode="identity")
-
-        out = []
-        for v, rs in zip(variants, raw_scores):
-            adj_s, penalties, _ = adjusted_efficacy_score(
-                float(rs), v.sense, v.antisense,
-                v.parent_sense, v.parent_antisense
-            )
-            v.efficacy_score = round(adj_s, 2)
-            v.delta_score = round(adj_s - parent_adjusted, 2)
-            v.penalties = penalties
-            out.append(v)
-        return out
-
-    # Compute parent adjusted score once
-    from .biophysics import adjusted_efficacy_score
-    parent_adjusted, _, _ = adjusted_efficacy_score(
+    # Calculate baseline for delta comparisons
+    parent_adjusted_score, _, _ = calculate_adjusted_efficacy(
         parent_score, sense, antisense, sense, antisense
     )
 
-    # Re-score initial beam — use adjusted scores from now on
-    beam = score_variants(beam)
-    beam.sort(key=lambda x: x.efficacy_score, reverse=True)
-    all_scored = list(beam)
+    def _score_variants_batch(variants: List[CmSiRNA]) -> List[CmSiRNA]:
+        """Internal helper to batch-score an array of variants using Model B."""
+        if not variants:
+            return []
+            
+        s_list = [v.sense for v in variants]
+        a_list = [v.antisense for v in variants]
+        ps_list = [v.parent_sense for v in variants]
+        pa_list = [v.parent_antisense for v in variants]
 
-    # Beam expansion for multi-mod
-    # Use only the top scoring single-results for pairing to keep search fast
-    pairing_pool = sorted(single_results, key=lambda r: r.efficacy_score, reverse=True)[:beam_width * 3]
-    round_best_scores = [beam[0].efficacy_score if beam else 0]
-    for n_mods in range(2, max_mods + 1):
-        current_best = beam[0].efficacy_score if beam else 0
-        # Early stopping: stop if the best score hasn't improved by >=0.5
-        # compared to 3 rounds ago (plateau detection). This lets the search
-        # explore freely to its natural peak without capping mod count.
-        if n_mods >= 4 and current_best - round_best_scores[-3] < 0.5:
+        feature_matrix = extract_positional_features_batch(s_list, a_list, ps_list, pa_list)
+        model = _get_model("B")
+        raw_predictions = model.predict(feature_matrix)
+        normalized_scores = _normalize_scores(raw_predictions, mode="identity")
+
+        scored_variants = []
+        for variant, raw_score in zip(variants, normalized_scores):
+            adj_score, penalties, _ = calculate_adjusted_efficacy(
+                float(raw_score), variant.sense, variant.antisense,
+                variant.parent_sense, variant.parent_antisense
+            )
+            variant.efficacy_score = round(adj_score, 2)
+            variant.delta_score = round(adj_score - parent_adjusted_score, 2)
+            variant.penalties = penalties
+            scored_variants.append(variant)
+            
+        return scored_variants
+
+    # Initialize the beam with diverse, high-performing single modifications
+    mod_groups: Dict[str, List[Any]] = defaultdict(list)
+    for result in single_results:
+        mod_groups[result.mod_symbol].append(result)
+
+    for symbol in mod_groups:
+        mod_groups[symbol].sort(key=lambda r: r.efficacy_score, reverse=True)
+
+    diversified_beam = []
+    max_entries = max(len(lst) for lst in mod_groups.values())
+    
+    # Round-robin selection ensures chemical diversity in the starting beam
+    for rank in range(max_entries):
+        for symbol in sorted(mod_groups.keys()):
+            if rank < len(mod_groups[symbol]):
+                diversified_beam.append(mod_groups[symbol][rank])
+            if len(diversified_beam) >= beam_width:
+                break
+        if len(diversified_beam) >= beam_width:
             break
-        round_best_scores.append(current_best)
-        candidates = []
 
-        def mod_key(v) -> tuple:
-            sym = getattr(v, 'mod_symbol', '')
-            pos = getattr(v, 'mod_position', 0)
-            strand = getattr(v, 'mod_strand', '')
-            positions = getattr(v, 'mod_positions', '')
-            return (sym, pos, strand, positions)
+    initial_beam: List[CmSiRNA] = []
+    if seed_variant is not None:
+        initial_beam.append(seed_variant)
+        
+    for result in diversified_beam:
+        if len(initial_beam) >= beam_width:
+            break
+        variant = CmSiRNA(
+            sense=result.sense,
+            antisense=result.antisense,
+            mod_symbol=result.mod_symbol,
+            mod_position=result.mod_position,
+            mod_strand=result.mod_strand,
+            parent_sense=sense,
+            parent_antisense=antisense,
+        )
+        variant.efficacy_score = result.efficacy_score
+        variant.delta_score = result.delta_score
+        initial_beam.append(variant)
 
-        seen = set()
-        for v1 in beam:
-            for v2 in pairing_pool:
-                k1 = mod_key(v1)
-                k2 = mod_key(v2)
-                pair = tuple(sorted([k1, k2]))
-                if pair in seen:
+    # Begin Expansion Rounds
+    current_beam = _score_variants_batch(initial_beam)
+    current_beam.sort(key=lambda x: x.efficacy_score, reverse=True)
+    all_evaluated_variants = list(current_beam)
+
+    pairing_pool = sorted(single_results, key=lambda r: r.efficacy_score, reverse=True)[:beam_width * 3]
+    history_best_scores = [current_beam[0].efficacy_score if current_beam else 0.0]
+
+    for iteration in range(2, max_mods + 1):
+        round_best_score = current_beam[0].efficacy_score if current_beam else 0.0
+        
+        # Plateau detection: Stop searching if the optimum hasn't improved meaningfully
+        if iteration >= 4 and (round_best_score - history_best_scores[-3]) < 0.5:
+            logger.info("Beam search plateau detected. Stopping early.")
+            break
+            
+        history_best_scores.append(round_best_score)
+        round_candidates = []
+        explored_pairs = set()
+
+        def _generate_signature(v: Any) -> tuple:
+            return (
+                getattr(v, 'mod_symbol', ''), 
+                getattr(v, 'mod_position', 0), 
+                getattr(v, 'mod_strand', ''), 
+                getattr(v, 'mod_positions', '')
+            )
+
+        for base_variant in current_beam:
+            for addon_variant in pairing_pool:
+                sig_1 = _generate_signature(base_variant)
+                sig_2 = _generate_signature(addon_variant)
+                pair_signature = tuple(sorted([sig_1, sig_2]))
+                
+                if pair_signature in explored_pairs:
                     continue
-                seen.add(pair)
+                    
+                explored_pairs.add(pair_signature)
 
-                mod_sense = list(v1.parent_sense)
-                mod_antisense = list(v1.parent_antisense)
-                mod_symbols = []
-                mod_positions = []
-                mod_strands = []
+                # Merge modifications
+                mutable_sense = list(base_variant.parent_sense)
+                mutable_antisense = list(base_variant.parent_antisense)
+                tracking_symbols = []
+                tracking_positions = []
+                tracking_strands = []
 
+                # Restore base variant modifications
                 for i in range(len(sense)):
-                    if v1.sense[i] != v1.parent_sense[i]:
-                        mod_sense[i] = v1.sense[i]
-                        mod_symbols.append(v1.sense[i])
-                        mod_positions.append(i + 1)
-                        mod_strands.append("sense")
+                    if base_variant.sense[i] != base_variant.parent_sense[i]:
+                        mutable_sense[i] = base_variant.sense[i]
+                        tracking_symbols.append(base_variant.sense[i])
+                        tracking_positions.append(i + 1)
+                        tracking_strands.append("sense")
+                        
                 for i in range(len(antisense)):
-                    if v1.antisense[i] != v1.parent_antisense[i]:
-                        mod_antisense[i] = v1.antisense[i]
-                        mod_symbols.append(v1.antisense[i])
-                        mod_positions.append(i + 1)
-                        mod_strands.append("antisense")
+                    if base_variant.antisense[i] != base_variant.parent_antisense[i]:
+                        mutable_antisense[i] = base_variant.antisense[i]
+                        tracking_symbols.append(base_variant.antisense[i])
+                        tracking_positions.append(i + 1)
+                        tracking_strands.append("antisense")
 
-                if v2.mod_strand == "sense":
-                    if mod_sense[v2.mod_position - 1] != sense[v2.mod_position - 1]:
-                        continue
-                    mod_sense[v2.mod_position - 1] = v2.mod_symbol
+                # Apply new addon modification
+                if addon_variant.mod_strand == "sense":
+                    if mutable_sense[addon_variant.mod_position - 1] != sense[addon_variant.mod_position - 1]:
+                        continue  # Position already modified, skip clash
+                    mutable_sense[addon_variant.mod_position - 1] = addon_variant.mod_symbol
                 else:
-                    if mod_antisense[v2.mod_position - 1] != antisense[v2.mod_position - 1]:
+                    if mutable_antisense[addon_variant.mod_position - 1] != antisense[addon_variant.mod_position - 1]:
                         continue
-                    mod_antisense[v2.mod_position - 1] = v2.mod_symbol
-                mod_symbols.append(v2.mod_symbol)
-                mod_positions.append(v2.mod_position)
-                mod_strands.append(v2.mod_strand)
+                    mutable_antisense[addon_variant.mod_position - 1] = addon_variant.mod_symbol
+                    
+                tracking_symbols.append(addon_variant.mod_symbol)
+                tracking_positions.append(addon_variant.mod_position)
+                tracking_strands.append(addon_variant.mod_strand)
 
-                candidates.append(CmSiRNA(
-                    sense="".join(mod_sense),
-                    antisense="".join(mod_antisense),
-                    mod_symbol="+".join(mod_symbols),
-                    mod_position=mod_positions[0],
-                    mod_positions=",".join(str(p) for p in mod_positions),
-                    mod_strand="+".join(mod_strands),
+                round_candidates.append(CmSiRNA(
+                    sense="".join(mutable_sense),
+                    antisense="".join(mutable_antisense),
+                    mod_symbol="+".join(tracking_symbols),
+                    mod_position=tracking_positions[0],
+                    mod_positions=",".join(str(p) for p in tracking_positions),
+                    mod_strand="+".join(tracking_strands),
                     parent_sense=sense,
                     parent_antisense=antisense,
                 ))
 
-        scored = score_variants(candidates)
-        scored.sort(key=lambda v: v.efficacy_score, reverse=True)
-        beam = scored[:beam_width]
-        all_scored.extend(scored)
+        scored_candidates = _score_variants_batch(round_candidates)
+        scored_candidates.sort(key=lambda v: v.efficacy_score, reverse=True)
+        
+        current_beam = scored_candidates[:beam_width]
+        all_evaluated_variants.extend(scored_candidates)
 
-    all_scored.sort(key=lambda v: v.efficacy_score, reverse=True)
-    return all_scored
+    all_evaluated_variants.sort(key=lambda v: v.efficacy_score, reverse=True)
+    logger.info(f"Beam search complete. Evaluated {len(all_evaluated_variants)} total variants.")
+    return all_evaluated_variants

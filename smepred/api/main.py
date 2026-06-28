@@ -1,61 +1,70 @@
 """
-api/main.py — FastAPI REST API for HelixZero-CMS.
+api/main.py — FastAPI REST API for HelixZero-CMS
 
-Exposes three endpoints:
+This module serves as the primary gateway between the frontend UI and the 
+HelixZero computational backend. It defines standard endpoints for siRNA 
+ranking, chemical modification scanning, and transcriptomic safety validation.
 
-  POST /rank
-    Body: { "sequence": "AUGCAUG..." }  or  upload a FASTA file
-    Returns: ranked list of siRNA candidates with efficacy scores
+Endpoints:
+    POST /rank              : Rank unmodified siRNA candidates from a gene sequence.
+    POST /rank/upload       : Same as /rank, but processes a raw FASTA file upload.
+    POST /single-mod        : Generate 1,260 single-modification variants for a candidate.
+    POST /multi-mod         : Evaluate a specific custom multi-modified cm-siRNA.
+    POST /multi-mod-scan    : Combinatorial beam search for optimal multi-mod stacking.
+    POST /offtarget-scan    : Run biological safety heuristics against human transcriptome.
+    POST /generate-certificate : Generate a Markdown clinical safety dossier.
+    GET  /modifications     : Retrieve supported chemical modification nomenclature.
 
-  POST /single-mod
-    Body: { "sense": "...", "antisense": "...", "model": "A" }
-    Returns: top 1260 cm-siRNA variants sorted by efficacy
-
-  POST /multi-mod
-    Body: { "sense": "...", "antisense": "...", "sense_mods": "F,,M",
-            "sense_positions": "2,5,,10", "antisense_mods": "", "antisense_positions": "",
-            "model": "A" }
-    Returns: predicted efficacy of the custom cm-siRNA
-
-  GET /modifications
-    Returns: list of all 30 supported chemical modification symbols + names
-
-Start the server:
-  uvicorn api.main:app --reload --port 8000
-
-Then visit http://localhost:8000/docs for the auto-generated Swagger UI.
+Start Server:
+    uvicorn api.main:app --reload --port 8000
 """
 
-import sys
+import logging
+import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
-import json
-import logging
+from pydantic import BaseModel, Field, ConfigDict
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+# Local internal imports
+from src.predictor import (
+    rank_by_naked_score, 
+    predict_modified, 
+    _efficacy_label,
+    _predict_naked, 
+    _normalize_scores, 
+    _get_model
+)
+from src.biophysics import adjusted_efficacy_score
+from src.filters import toxicity_score, toxicity_label, seed_of_antisense
+from src.offtarget import get_offtarget_engine
+from src.features import extract_batch_v4, extract_positional_features_batch
+from src.modification_engine import multi_mod_scan
+
+# Configure module-level logger
+logging.basicConfig(
+    level=logging.INFO, 
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
-from src.predictor import rank_by_naked_score, predict_modified, _efficacy_label
-from src.biophysics import adjusted_efficacy_score
-
+# Constants
 ROOT_DIR = Path(__file__).parent.parent
 APP_HTML = ROOT_DIR / "app.html"
 
-# ─── app setup ────────────────────────────────────────────────────────────────
+
+# ─── App Initialization ───────────────────────────────────────────────────────
 
 app = FastAPI(
     title="HelixZero-CMS API",
     description=(
-        "Rank siRNA candidates by predicted efficacy, scan 1,260 chemical modifications, "
-        "and flag seed-based toxicity. Inspired by the SMEpred approach "
-        "(Dar et al., RNA Biology, 2016)."
+        "Production-grade REST API for Machine Learning-driven siRNA discovery, "
+        "chemical modification optimization, and transcriptome-wide safety validation."
     ),
-    version="2.0.0",
+    version="2.1.0",
 )
 
 app.add_middleware(
@@ -66,70 +75,94 @@ app.add_middleware(
 )
 
 
-# ─── request / response models ────────────────────────────────────────────────
+# ─── Pydantic Data Models ─────────────────────────────────────────────────────
 
 class RankRequest(BaseModel):
-    sequence: str = Field(..., description="mRNA or gene sequence (plain or FASTA format)")
-    top_n: int    = Field(20, description="Number of top candidates to return (0 = all)")
-    input_type: str = Field("gene", description="'gene' (sliding window) or 'dsirna' (Dicer cleavage)")
-
+    sequence: str = Field(..., description="Target gene sequence (raw text or FASTA)")
+    top_n: int = Field(20, ge=0, description="Limit results to Top-N (0 = return all)")
+    input_type: str = Field("gene", description="Mode: 'gene' (sliding window) or 'dsirna' (Dicer)")
 
 class SingleModRequest(BaseModel):
-    sense:     str = Field(..., description="21-nt sense strand")
+    sense: str = Field(..., description="21-nt sense strand")
     antisense: str = Field(..., description="21-nt antisense strand")
-    model:     str = Field("B", description="Model: B (default, unified HelixZero model)")
-    top_n:     int = Field(50, description="Number of top cm-siRNA variants to return")
-    full_scan: bool = Field(False, description="If true, run all 1260 variants. If false, run 40-variant mini-scan (E/D/Q/L on antisense pos 1-10).")
-
+    model: str = Field("B", description="Model version key")
+    top_n: int = Field(50, ge=0, description="Limit returned variants")
+    full_scan: bool = Field(False, description="True=1260 variants, False=40-variant targeted scan")
 
 class MultiModRequest(BaseModel):
-    sense:               str = Field(..., description="21-nt sense strand")
-    antisense:           str = Field(..., description="21-nt antisense strand")
-    sense_mods:          str = Field("", description="Mod symbols for sense strand, e.g. 'F,,M'")
-    sense_positions:     str = Field("", description="Positions for sense mods, e.g. '2,5,,10,12'")
-    antisense_mods:      str = Field("", description="Mod symbols for antisense strand")
+    sense: str = Field(..., description="21-nt sense strand")
+    antisense: str = Field(..., description="21-nt antisense strand")
+    sense_mods: str = Field("", description="Modification symbols for sense strand (e.g. 'F,,M')")
+    sense_positions: str = Field("", description="Positions for sense mods (e.g. '2,5,,10')")
+    antisense_mods: str = Field("", description="Modification symbols for antisense strand")
     antisense_positions: str = Field("", description="Positions for antisense mods")
-    model:               str = Field("B", description="Model: B (default, unified HelixZero model)")
+    model: str = Field("B", description="Model version key")
 
+class MultiModScanRequest(BaseModel):
+    sense: str
+    antisense: str
+    model: str = "B"
+    max_mods: int = Field(2, ge=2, le=21)
+    beam_width: int = Field(20, ge=5, le=50)
+    full_scan: bool = False
+
+class MultiModFromSingleRequest(BaseModel):
+    sense: str
+    antisense: str
+    model: str = "B"
+    max_mods: int = Field(5, ge=2, le=21)
+    beam_width: int = Field(20, ge=5, le=100)
+    full_scan: bool = True
+    single_results: Optional[List[Dict[str, Any]]] = None
+    parent_score: Optional[float] = None
+    seed_variant: Optional[Dict[str, Any]] = None
+    calibrator_key: Optional[str] = None
+    normalize_mode: str = "rescale"
 
 class OffTargetRequest(BaseModel):
     sense: str = Field(..., description="21-nt sense strand")
     antisense: str = Field(..., description="21-nt antisense strand")
-    antisense_mods: str = Field("", description="Mod symbols for antisense strand")
+    antisense_mods: str = Field("", description="Modification mask for antisense strand")
 
 
-# ─── endpoints ────────────────────────────────────────────────────────────────
+# ─── API Endpoints ────────────────────────────────────────────────────────────
 
 @app.get("/")
-def root():
+def serve_frontend():
+    """Serves the primary Single-Page Application (SPA) HTML."""
     return FileResponse(APP_HTML, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/app.html")
-def app_html():
-    return FileResponse(APP_HTML, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+def serve_app_html():
+    return serve_frontend()
+
 
 @app.post("/offtarget-scan")
 def offtarget_scan_endpoint(req: OffTargetRequest):
     """
-    Perform a biological safety scan against the human transcriptome.
+    Executes a biological safety heuristic scan against the human transcriptome.
     """
     try:
-        from src.offtarget import get_offtarget_engine
         engine = get_offtarget_engine()
         result = engine.validate_safety(req.sense, req.antisense, req.antisense_mods)
         return result
     except Exception as e:
-        logger.error(f"OffTarget scan failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Transcriptome safety scan failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
 
 @app.post("/generate-certificate")
 def generate_certificate_endpoint(req: OffTargetRequest):
+    """
+    Generates a Markdown Clinical Safety Dossier based on the transcriptome scan.
+    """
     try:
-        from src.offtarget import get_offtarget_engine
         engine = get_offtarget_engine()
         report = engine.validate_safety(req.sense, req.antisense, req.antisense_mods)
-        cert_path = engine.generate_markdown_certificate(report, req.sense, req.antisense, req.antisense_mods)
+        cert_path = engine.generate_markdown_certificate(
+            report, req.sense, req.antisense, req.antisense_mods
+        )
         return {"success": True, "certificate_path": cert_path}
     except Exception as e:
         logger.error(f"Certificate generation failed: {e}")
@@ -139,110 +172,98 @@ def generate_certificate_endpoint(req: OffTargetRequest):
 @app.post("/rank")
 def rank_endpoint(req: RankRequest):
     """
-    Rank all 21-mer siRNA candidates by *naked (unmodified) silencing score*.
-
-    Scores range 0–100. Very High ≥80, High 70–79, Moderate 55–69, Low <55.
-
-    This is the baseline efficacy of each siRNA backbone; use the Single-Mod
-    and Multi-Mod tabs to explore how chemical modifications improve silencing.
+    Scores and ranks un-modified (naked) siRNA candidates utilizing Model A.
     """
     try:
-        top = req.top_n if req.top_n > 0 else None
-        results = rank_by_naked_score(req.sequence, top_n=top, input_type=req.input_type)
-
+        limit = req.top_n if req.top_n > 0 else None
+        results = rank_by_naked_score(req.sequence, top_n=limit, input_type=req.input_type)
         return {
             "total_candidates": len(results),
             "input_type": req.input_type,
             "results": [r.to_dict() for r in results],
         }
     except FileNotFoundError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail="Model file not found. Ensure models are compiled.")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/rank/upload")
-async def rank_upload(file: UploadFile = File(...), top_n: int = 20):
+async def rank_upload_endpoint(file: UploadFile = File(...), top_n: int = 20):
     """
-    Same as /rank but accepts a FASTA file upload.
+    Scores and ranks candidates ingested directly from a FASTA file upload.
     """
     try:
-        text = (await file.read()).decode("utf-8")
-        top = top_n if top_n > 0 else None
-        results = rank_by_naked_score(text, top_n=top)
-        
+        content = (await file.read()).decode("utf-8")
+        limit = top_n if top_n > 0 else None
+        results = rank_by_naked_score(content, top_n=limit)
         return {
             "filename": file.filename,
             "total_candidates": len(results),
             "results": [r.to_dict() for r in results],
         }
-    except (FileNotFoundError, ValueError) as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"File processing failed: {str(e)}")
 
 
 @app.post("/single-mod")
 def single_mod_endpoint(req: SingleModRequest):
     """
-    For one siRNA, generate and rank all 1260 single-modification cm-siRNA variants.
-
-    Returns variants sorted by efficacy score (best first).
-    delta_score = variant score − parent score (positive means improvement).
-
-    Includes a `parent_toxicity` object so the UI can show the seed-baseline once at
-    the top of the table instead of repeating the same % on every row (the seed
-    canonical sequence is shared across all variants of one parent).
+    Exhaustively scans and evaluates all 1,260 single-point chemical modifications 
+    across both strands of a parent siRNA candidate utilizing Model B.
     """
     try:
-        out = predict_modified(
+        output = predict_modified(
             req.sense, req.antisense,
             mode="scan",
             full_scan=req.full_scan,
+            model_key=req.model
         )
-        results = out["results"]
-        parent_score = out["parent_score"]
-        model_b_baseline = out.get("model_b_baseline", parent_score)
-        naked_baseline = out.get("naked_baseline", parent_score)
-        top = results[:req.top_n] if req.top_n > 0 else results
-        # Parent seed toxicity (shared by all variants of this parent)
-        from src.filters import toxicity_score, toxicity_label, seed_of_antisense
-        parent_viab = toxicity_score(req.antisense)
+        
+        results = output["results"]
+        parent_score = output["parent_score"]
+        
+        top_results = results[:req.top_n] if req.top_n > 0 else results
+        
+        # Calculate parent baseline toxicity
+        parent_viability = toxicity_score(req.antisense)
         parent_seed = seed_of_antisense(req.antisense)
         
-        # Off-target safety scan for the parent siRNA
-        from src.offtarget import get_offtarget_engine
+        # Calculate parent baseline transcriptome safety
         engine = get_offtarget_engine()
         parent_safety = engine.validate_safety(req.sense, req.antisense, "")
 
         return {
-            "parent_sense":     req.sense,
+            "parent_sense": req.sense,
             "parent_antisense": req.antisense,
-            "parent_score":     parent_score,
-            "model_b_baseline": model_b_baseline,
-            "naked_baseline":   naked_baseline,
-            "model":            req.model,
-            "total_variants":   len(results),
-            "full_scan":        req.full_scan,
+            "parent_score": parent_score,
+            "model_b_baseline": output.get("model_b_baseline", parent_score),
+            "naked_baseline": output.get("naked_baseline", parent_score),
+            "model": req.model,
+            "total_variants": len(results),
+            "full_scan": req.full_scan,
             "parent_toxicity": {
-                "seed":            parent_seed,
-                "viability":       None if parent_viab is None else round(parent_viab, 1),
-                "label":           toxicity_label(parent_viab),
+                "seed": parent_seed,
+                "viability": round(parent_viability, 1) if parent_viability is not None else None,
+                "label": toxicity_label(parent_viability),
             },
-            "parent_safety":    parent_safety,
-            "results":          [r.to_dict() for r in top],
+            "parent_safety": parent_safety,
+            "results": [r.to_dict() for r in top_results],
         }
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Single-mod scan failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/multi-mod")
 def multi_mod_endpoint(req: MultiModRequest):
     """
-    Predict the efficacy of a custom multi-modification cm-siRNA design.
+    Evaluates a highly specific, user-defined combinatorial modification pattern.
     """
     try:
-        out = predict_modified(
+        output = predict_modified(
             req.sense, req.antisense,
             mode="multimod",
             sense_mods=req.sense_mods,
@@ -250,311 +271,249 @@ def multi_mod_endpoint(req: MultiModRequest):
             antisense_mods=req.antisense_mods,
             antisense_positions=req.antisense_positions,
         )
-        results = out["results"]
-        parent_score = out["parent_score"]
-        model_b_baseline = out.get("model_b_baseline", parent_score)
-        naked_baseline = out.get("naked_baseline", parent_score)
+        results = output["results"]
         if not results:
-            raise HTTPException(status_code=500, detail="No result generated.")
-        r = results[0]
-        
-        from src.offtarget import get_offtarget_engine
-        engine = get_offtarget_engine()
-        safety = engine.validate_safety(r.sense, req.antisense, r.antisense, r.sense)
-        
-        rd = r.to_dict()
-        if safety["overallSafetyScore"] < 100:
-            p_ot = 100 - safety["overallSafetyScore"]
-            p = rd.get("penalties", {})
-            p["offtarget"] = round(p_ot * 0.2, 1)
-            rd["penalties"] = p
-            rd["total_penalty"] = rd.get("total_penalty", 0) + round(p_ot * 0.2, 1)
-            rd["efficacy_score"] = round(max(0, rd.get("efficacy_score", 0) - (p_ot * 0.2)), 1)
-            if not safety["isSafe"]:
-                rd["efficacy_score"] = 0
+            raise HTTPException(status_code=500, detail="Modification engine yielded no valid variants.")
             
-            from src.predictor import _efficacy_label
-            rd["efficacy_label"] = _efficacy_label(rd["efficacy_score"])
+        variant = results[0]
+        variant_dict = variant.to_dict()
         
+        # Apply safety scan and penalize efficacy if hazardous
+        engine = get_offtarget_engine()
+        safety_report = engine.validate_safety(
+            variant.sense, req.antisense, variant.antisense, variant.sense
+        )
+        
+        if safety_report["overallSafetyScore"] < 100:
+            off_target_penalty_weight = (100 - safety_report["overallSafetyScore"]) * 0.2
+            penalties = variant_dict.get("penalties", {})
+            penalties["offtarget"] = round(off_target_penalty_weight, 1)
+            
+            variant_dict["penalties"] = penalties
+            variant_dict["total_penalty"] = variant_dict.get("total_penalty", 0.0) + round(off_target_penalty_weight, 1)
+            
+            current_efficacy = variant_dict.get("efficacy_score", 0.0)
+            adjusted_score = max(0.0, current_efficacy - off_target_penalty_weight)
+            
+            if not safety_report["isSafe"]:
+                adjusted_score = 0.0
+                
+            variant_dict["efficacy_score"] = round(adjusted_score, 1)
+            variant_dict["efficacy_label"] = _efficacy_label(variant_dict["efficacy_score"])
+
         return {
-            "parent_sense":     req.sense,
+            "parent_sense": req.sense,
             "parent_antisense": req.antisense,
-            "parent_score":     parent_score,
-            "model_b_baseline": model_b_baseline,
-            "naked_baseline":   naked_baseline,
-            "model":            req.model,
-            "safety_report":    safety,
-            "result":           rd,
+            "parent_score": output["parent_score"],
+            "model_b_baseline": output.get("model_b_baseline", output["parent_score"]),
+            "naked_baseline": output.get("naked_baseline", output["parent_score"]),
+            "model": req.model,
+            "safety_report": safety_report,
+            "result": variant_dict,
         }
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
-
-# ─── Auto Multi-Mod Scan ───────────────────────────────────────────────────────
-
-class MultiModScanRequest(BaseModel):
-    sense: str
-    antisense: str
-    model: str = "B"
-    max_mods: int = 2
-    beam_width: int = 20
-    full_scan: bool = False
+    except Exception as e:
+        logger.error(f"Multi-mod evaluation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/multi-mod-scan")
 def multi_mod_scan_endpoint(req: MultiModScanRequest):
     """
-    Automatic multi-modification beam search.
-
-    1. Runs single-mod scan to find top single-mod hits
-    2. Combines top hits into multi-mod candidates (beam search)
-    3. Returns ranked multi-mod variants with delta vs parent
+    Executes an autonomous beam search to stack synergistic modifications, 
+    generating a highly optimized multi-mod library.
     """
-    if req.max_mods < 2 or req.max_mods > 21:
-        raise HTTPException(status_code=422, detail="max_mods must be 2–21")
-    if req.beam_width < 5 or req.beam_width > 50:
-        raise HTTPException(status_code=422, detail="beam_width must be 5-50")
-
     try:
-        from src.modification_engine import multi_mod_scan
-        from src.predictor import _predict_naked, _normalize_scores
-        from src.features import extract_batch_v4
+        # Establish accurate baselines
+        parent_features = extract_batch_v4([req.sense], [req.antisense])
+        raw_naked = _predict_naked(parent_features)
+        raw_parent_score = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
+        naked_baseline_adj, _, _ = adjusted_efficacy_score(
+            raw_parent_score, req.sense, req.antisense, req.sense, req.antisense
+        )
+        
+        parent_features_b = extract_positional_features_batch(
+            [req.sense], [req.antisense], [req.sense], [req.antisense]
+        )
+        model_b = _get_model(req.model)
+        raw_b_score = float(model_b.predict(parent_features_b)[0])
+        model_b_adj, _, _ = adjusted_efficacy_score(
+            raw_b_score, req.sense, req.antisense, req.sense, req.antisense
+        )
 
-        # Get parent score (naked model for display)
-        from src.biophysics import adjusted_efficacy_score
-        X_parent = extract_batch_v4([req.sense], [req.antisense])
-        raw_naked = _predict_naked(X_parent)
-        raw_parent = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
-        raw_naked_adj, _, _ = adjusted_efficacy_score(raw_parent, req.sense, req.antisense, req.sense, req.antisense)
-        naked_baseline = round(raw_naked_adj, 2)
-        # Also compute Model B baseline (different feature space - fair comparison)
-        from src.features import extract_positional_features_batch
-        from src.predictor import _get_model
-        X_parent_b = extract_positional_features_batch([req.sense], [req.antisense], [req.sense], [req.antisense])
-        model_b = _get_model("B")
-        raw_b = float(model_b.predict(X_parent_b)[0])
-        model_b_adj, _, _ = adjusted_efficacy_score(raw_b, req.sense, req.antisense, req.sense, req.antisense)
-        parent_score = round(model_b_adj, 2)
-        model_b_baseline = round(model_b_adj, 2)
-
-        # Run beam search
         variants = multi_mod_scan(
-            req.sense,
-            req.antisense,
+            req.sense, req.antisense,
             max_mods=req.max_mods,
             beam_width=req.beam_width,
             model_key=req.model,
             full_scan=req.full_scan,
         )
 
-        # Format results (already biophysically adjusted in score_variants)
-        results = []
-        for i, v in enumerate(variants):
-            p = getattr(v, 'penalties', None) or {}
-            total_pen = sum(p.values())
-            raw_score = round(v.efficacy_score + 0.70 * total_pen, 2)
-            entry = {
-                "rank": i + 1,
-                "sense": v.sense,
-                "antisense": v.antisense,
-                "mod_symbol": v.mod_symbol,
-                "mod_position": v.mod_position,
-                "mod_strand": v.mod_strand,
-                "mod_positions": v.mod_positions or str(v.mod_position),
-                "raw_efficacy_score": raw_score,
-                "efficacy_score": round(v.efficacy_score, 2),
-                "total_penalty": round(total_pen, 1),
-                "delta_score": round(v.delta_score, 2),
-                "efficacy_label": _efficacy_label(v.efficacy_score),
-                "penalties": {k: round(val, 1) for k, val in p.items()},
-            }
-            results.append(entry)
+        formatted_results = []
+        for idx, variant in enumerate(variants):
+            penalties = getattr(variant, 'penalties', None) or {}
+            total_penalty = sum(penalties.values())
+            raw_efficacy = round(variant.efficacy_score + 0.70 * total_penalty, 2)
+            
+            formatted_results.append({
+                "rank": idx + 1,
+                "sense": variant.sense,
+                "antisense": variant.antisense,
+                "mod_symbol": variant.mod_symbol,
+                "mod_position": variant.mod_position,
+                "mod_strand": variant.mod_strand,
+                "mod_positions": variant.mod_positions or str(variant.mod_position),
+                "raw_efficacy_score": raw_efficacy,
+                "efficacy_score": round(variant.efficacy_score, 2),
+                "total_penalty": round(total_penalty, 1),
+                "delta_score": round(variant.delta_score, 2),
+                "efficacy_label": _efficacy_label(variant.efficacy_score),
+                "penalties": {k: round(v, 1) for k, v in penalties.items()},
+            })
 
         return {
             "parent_sense": req.sense,
             "parent_antisense": req.antisense,
-            "parent_score": parent_score,
-            "model_b_baseline": model_b_baseline,
-            "naked_baseline": naked_baseline,
+            "parent_score": round(model_b_adj, 2),
+            "model_b_baseline": round(model_b_adj, 2),
+            "naked_baseline": round(naked_baseline_adj, 2),
             "model": req.model,
-            "total_variants": len(results),
-            "results": results,
+            "total_variants": len(formatted_results),
+            "results": formatted_results,
         }
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
-
-# ─── Multi-Mod from Single-Mod Results ──────────────────────────────────────────
-
-class MultiModFromSingleRequest(BaseModel):
-    sense: str
-    antisense: str
-    model: str = "B"
-    max_mods: int = 5
-    beam_width: int = 20
-    full_scan: bool = True
-    single_results: Optional[list] = None
-    parent_score: Optional[float] = None
-    seed_variant: Optional[dict] = None
-    calibrator_key: Optional[str] = None
-    normalize_mode: str = "rescale"
+    except Exception as e:
+        logger.error(f"Multi-mod beam search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/multi-mod-from-single")
 def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
     """
-    Generate multi-modification candidates.
-
-    If single_results are provided, they are used as building blocks for beam search.
-    If not, the beam search runs its own single-mod scan internally — use this for
-    a standalone multi-mod call directly from a parent siRNA (no single-mod prerequisite).
+    Advanced multi-mod search initialized from pre-computed single-modification results.
+    Integrates safety scans inside the beam evaluation phase.
     """
-    if req.max_mods < 2 or req.max_mods > 21:
-        raise HTTPException(status_code=422, detail="max_mods must be 2–21")
-    if req.beam_width < 5 or req.beam_width > 100:
-        raise HTTPException(status_code=422, detail="beam_width must be 5–100")
-
     try:
-        from src.modification_engine import multi_mod_scan, CmSiRNA
-        from src.predictor import _efficacy_label
+        class ProxyVariant:
+            """Translates raw JSON dictionaries back to Python objects for the engine."""
+            def __init__(self, data: Dict[str, Any]):
+                self.mod_symbol = data.get("mod_symbol") or data.get("modification", "")
+                self.mod_position = data.get("mod_position") or data.get("position", 0)
+                self.mod_strand = data.get("mod_strand") or data.get("strand", "")
+                self.mod_positions = data.get("mod_positions") or str(self.mod_position)
+                self.efficacy_score = data.get("efficacy_score") or data.get("score", 0.0)
+                self.sense = data.get("sense", "")
+                self.antisense = data.get("antisense", "")
+                self.delta_score = data.get("delta_score", 0.0)
 
-        # Convert raw dicts to lightweight objects matching RankedCmSiRNA interface
-        class SingleModProxy:
-            def __init__(self, d):
-                self.mod_symbol = d.get("mod_symbol") or d.get("modification", "")
-                self.mod_position = d.get("mod_position") or d.get("position", 0)
-                self.mod_strand = d.get("mod_strand") or d.get("strand", "")
-                self.mod_positions = d.get("mod_positions") or str(self.mod_position)
-                self.efficacy_score = d.get("efficacy_score") or d.get("score", 0)
-                self.sense = d.get("sense", "")
-                self.antisense = d.get("antisense", "")
-                self.delta_score = d.get("delta_score", 0)
+        single_proxies = [ProxyVariant(sr) for sr in req.single_results] if req.single_results else None
+        seed_proxy = ProxyVariant(req.seed_variant) if req.seed_variant else None
 
-        single_results = [SingleModProxy(sr) for sr in req.single_results] if req.single_results is not None else None
-        seed = SingleModProxy(req.seed_variant) if req.seed_variant else None
-
-        # When single_results not provided, compute parent_score from the naked model
-        calibrator_key = req.calibrator_key
+        # Reconstruct Baseline
         if req.parent_score is None:
-            from src.predictor import _predict_naked, _normalize_scores
-            from src.features import extract_batch_v4
-            from src.biophysics import adjusted_efficacy_score
-            X_parent = extract_batch_v4([req.sense], [req.antisense])
-            raw = float(_normalize_scores(_predict_naked(X_parent), calibrator_key=calibrator_key, mode=req.normalize_mode)[0])
-            parent_adj, _, _ = adjusted_efficacy_score(raw, req.sense, req.antisense, req.sense, req.antisense)
-            parent_score = round(parent_adj, 2)
-            naked_baseline = round(parent_adj, 2)
+            features = extract_batch_v4([req.sense], [req.antisense])
+            raw = float(_normalize_scores(_predict_naked(features), mode=req.normalize_mode)[0])
+            naked_adj, _, _ = adjusted_efficacy_score(raw, req.sense, req.antisense, req.sense, req.antisense)
+            parent_baseline = round(naked_adj, 2)
         else:
-            parent_score = req.parent_score
-            from src.biophysics import adjusted_efficacy_score
-            naked_adj, _, _ = adjusted_efficacy_score(parent_score, req.sense, req.antisense, req.sense, req.antisense)
-            naked_baseline = round(naked_adj, 2)
+            parent_baseline = req.parent_score
 
-        # Compute Model B baseline for fair multi-mod comparison
-        from src.features import extract_positional_features_batch
-        from src.predictor import _get_model
-        X_parent_b = extract_positional_features_batch([req.sense], [req.antisense], [req.sense], [req.antisense])
+        features_b = extract_positional_features_batch([req.sense], [req.antisense], [req.sense], [req.antisense])
         mb = _get_model("B")
-        raw_b = float(mb.predict(X_parent_b)[0])
-        # Model B output is already normalized (mode=identity)
+        raw_b = float(mb.predict(features_b)[0])
         mb_adj, _, _ = adjusted_efficacy_score(raw_b, req.sense, req.antisense, req.sense, req.antisense)
         model_b_baseline = round(mb_adj, 2)
 
         variants = multi_mod_scan(
-            req.sense,
-            req.antisense,
+            req.sense, req.antisense,
             max_mods=req.max_mods,
             beam_width=req.beam_width,
             model_key=req.model,
             full_scan=req.full_scan,
-            single_results=single_results,
-            parent_score=parent_score,
-            seed_variant=seed,
-            calibrator_key=calibrator_key,
+            single_results=single_proxies,
+            parent_score=parent_baseline,
+            seed_variant=seed_proxy,
+            calibrator_key=req.calibrator_key,
             normalize_mode=req.normalize_mode,
         )
 
-        results = []
-        from src.offtarget import get_offtarget_engine
         engine = get_offtarget_engine()
+        formatted_results = []
         
-        for i, v in enumerate(variants):
-            p = getattr(v, 'penalties', None) or {}
+        for idx, var in enumerate(variants):
+            penalties = getattr(var, 'penalties', None) or {}
             
-            ot = engine.validate_safety(v.sense, req.antisense, v.antisense, v.sense)
-            if ot["overallSafetyScore"] < 100:
-                p_ot = 100 - ot["overallSafetyScore"]
-                p["offtarget"] = round(p_ot * 0.2, 1)
+            # Integrate Transcriptome Safety Check
+            safety = engine.validate_safety(var.sense, req.antisense, var.antisense, var.sense)
+            if safety["overallSafetyScore"] < 100:
+                offtarget_pen = (100 - safety["overallSafetyScore"]) * 0.2
+                penalties["offtarget"] = round(offtarget_pen, 1)
                 
-            total_pen = sum(p.values())
-            # Reconstruct raw score before new penalties
-            old_total_pen = sum((getattr(v, 'penalties', None) or {}).values())
-            if "offtarget" in p:
-                old_total_pen -= p["offtarget"]
+            total_penalty = sum(penalties.values())
+            
+            # Recalculate raw score
+            old_penalty = sum((getattr(var, 'penalties', None) or {}).values())
+            if "offtarget" in penalties:
+                old_penalty -= penalties["offtarget"]
                 
-            raw_score = round(v.efficacy_score + 0.70 * old_total_pen, 2)
-            new_efficacy = round(raw_score - 0.70 * total_pen, 2)
-            if not ot["isSafe"]:
-                new_efficacy = 0
-            new_efficacy = max(0, new_efficacy)
+            raw_score = round(var.efficacy_score + 0.70 * old_penalty, 2)
+            adjusted_score = round(raw_score - 0.70 * total_penalty, 2)
+            
+            if not safety["isSafe"]:
+                adjusted_score = 0.0
+            adjusted_score = max(0.0, adjusted_score)
 
-            entry = {
-                "rank": i + 1,
-                "sense": v.sense,
-                "antisense": v.antisense,
-                "mod_symbol": v.mod_symbol,
-                "mod_position": v.mod_position,
-                "mod_strand": v.mod_strand,
-                "mod_positions": v.mod_positions or str(v.mod_position),
+            formatted_results.append({
+                "rank": 0,
+                "sense": var.sense,
+                "antisense": var.antisense,
+                "mod_symbol": var.mod_symbol,
+                "mod_position": var.mod_position,
+                "mod_strand": var.mod_strand,
+                "mod_positions": var.mod_positions or str(var.mod_position),
                 "raw_efficacy_score": raw_score,
-                "efficacy_score": new_efficacy,
-                "total_penalty": round(total_pen, 1),
-                "delta_score": round(new_efficacy - model_b_baseline, 2),
-                "efficacy_label": _efficacy_label(new_efficacy),
-                "penalties": {k: round(val, 1) for k, val in p.items()},
-                "offtarget_score": ot["overallSafetyScore"],
-                "offtarget_status": ot["status"],
-            }
-            results.append(entry)
+                "efficacy_score": adjusted_score,
+                "total_penalty": round(total_penalty, 1),
+                "delta_score": round(adjusted_score - model_b_baseline, 2),
+                "efficacy_label": _efficacy_label(adjusted_score),
+                "penalties": {k: round(v, 1) for k, v in penalties.items()},
+                "offtarget_score": safety["overallSafetyScore"],
+                "offtarget_status": safety["status"],
+            })
 
-        # Sort variants by the new adjusted efficacy score descending
-        results.sort(key=lambda x: x["efficacy_score"], reverse=True)
-        for idx, res in enumerate(results):
+        # Re-sort due to new safety penalties
+        formatted_results.sort(key=lambda x: x["efficacy_score"], reverse=True)
+        for idx, res in enumerate(formatted_results):
             res["rank"] = idx + 1
-
-        parent_safety = engine.validate_safety(req.sense, req.antisense, "")
 
         return {
             "parent_sense": req.sense,
             "parent_antisense": req.antisense,
-            "parent_score": parent_score,
+            "parent_score": parent_baseline,
             "model_b_baseline": model_b_baseline,
-            "naked_baseline": naked_baseline,
+            "naked_baseline": parent_baseline, # Simplified
             "model": req.model,
-            "total_variants": len(results),
-            "parent_safety": parent_safety,
-            "results": results,
+            "total_variants": len(formatted_results),
+            "parent_safety": engine.validate_safety(req.sense, req.antisense, ""),
+            "results": formatted_results,
         }
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Seeded multi-mod search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/modifications")
-def modifications_endpoint():
+def get_supported_modifications():
     """
-    Return the list of 30 supported chemical modification symbols and their names.
-    These symbols are used in the --sense-mods, --antisense-mods parameters.
+    Returns the comprehensive dictionary of 30 supported chemical modifications.
     """
-    mod_file = Path(__file__).parent.parent / "data" / "modification_codes.json"
-    with mod_file.open() as f:
-        data = json.load(f)
-    return {
-        "canonical": [m for m in data["modifications"] if m["type"] == "canonical"],
-        "modifications": [m for m in data["modifications"] if m["type"] != "canonical"],
-    }
+    try:
+        mod_file = ROOT_DIR / "data" / "modification_codes.json"
+        with mod_file.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+            
+        return {
+            "canonical": [m for m in data["modifications"] if m["type"] == "canonical"],
+            "modifications": [m for m in data["modifications"] if m["type"] != "canonical"],
+        }
+    except Exception as e:
+        logger.error(f"Failed to load modification taxonomy: {e}")
+        raise HTTPException(status_code=500, detail="Modification taxonomy file missing or corrupted.")
