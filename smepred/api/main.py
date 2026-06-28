@@ -92,16 +92,48 @@ class MultiModRequest(BaseModel):
     model:               str = Field("B", description="Model: B (default, unified HelixZero model)")
 
 
+class OffTargetRequest(BaseModel):
+    sense: str = Field(..., description="21-nt sense strand")
+    antisense: str = Field(..., description="21-nt antisense strand")
+    antisense_mods: str = Field("", description="Mod symbols for antisense strand")
+
+
 # ─── endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def root():
-    return FileResponse(APP_HTML)
+    return FileResponse(APP_HTML, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/app.html")
 def app_html():
-    return FileResponse(APP_HTML)
+    return FileResponse(APP_HTML, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+@app.post("/offtarget-scan")
+def offtarget_scan_endpoint(req: OffTargetRequest):
+    """
+    Perform a biological safety scan against the human transcriptome.
+    """
+    try:
+        from src.offtarget import get_offtarget_engine
+        engine = get_offtarget_engine()
+        result = engine.validate_safety(req.sense, req.antisense, req.antisense_mods)
+        return result
+    except Exception as e:
+        logger.error(f"OffTarget scan failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/generate-certificate")
+def generate_certificate_endpoint(req: OffTargetRequest):
+    try:
+        from src.offtarget import get_offtarget_engine
+        engine = get_offtarget_engine()
+        report = engine.validate_safety(req.sense, req.antisense, req.antisense_mods)
+        cert_path = engine.generate_markdown_certificate(report, req.sense, req.antisense, req.antisense_mods)
+        return {"success": True, "certificate_path": cert_path}
+    except Exception as e:
+        logger.error(f"Certificate generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/rank")
@@ -138,6 +170,7 @@ async def rank_upload(file: UploadFile = File(...), top_n: int = 20):
         text = (await file.read()).decode("utf-8")
         top = top_n if top_n > 0 else None
         results = rank_by_naked_score(text, top_n=top)
+        
         return {
             "filename": file.filename,
             "total_candidates": len(results),
@@ -174,6 +207,12 @@ def single_mod_endpoint(req: SingleModRequest):
         from src.filters import toxicity_score, toxicity_label, seed_of_antisense
         parent_viab = toxicity_score(req.antisense)
         parent_seed = seed_of_antisense(req.antisense)
+        
+        # Off-target safety scan for the parent siRNA
+        from src.offtarget import get_offtarget_engine
+        engine = get_offtarget_engine()
+        parent_safety = engine.validate_safety(req.sense, req.antisense, "")
+
         return {
             "parent_sense":     req.sense,
             "parent_antisense": req.antisense,
@@ -188,6 +227,7 @@ def single_mod_endpoint(req: SingleModRequest):
                 "viability":       None if parent_viab is None else round(parent_viab, 1),
                 "label":           toxicity_label(parent_viab),
             },
+            "parent_safety":    parent_safety,
             "results":          [r.to_dict() for r in top],
         }
     except FileNotFoundError as e:
@@ -217,6 +257,25 @@ def multi_mod_endpoint(req: MultiModRequest):
         if not results:
             raise HTTPException(status_code=500, detail="No result generated.")
         r = results[0]
+        
+        from src.offtarget import get_offtarget_engine
+        engine = get_offtarget_engine()
+        safety = engine.validate_safety(r.sense, req.antisense, r.antisense, r.sense)
+        
+        rd = r.to_dict()
+        if safety["overallSafetyScore"] < 100:
+            p_ot = 100 - safety["overallSafetyScore"]
+            p = rd.get("penalties", {})
+            p["offtarget"] = round(p_ot * 0.2, 1)
+            rd["penalties"] = p
+            rd["total_penalty"] = rd.get("total_penalty", 0) + round(p_ot * 0.2, 1)
+            rd["efficacy_score"] = round(max(0, rd.get("efficacy_score", 0) - (p_ot * 0.2)), 1)
+            if not safety["isSafe"]:
+                rd["efficacy_score"] = 0
+            
+            from src.predictor import _efficacy_label
+            rd["efficacy_label"] = _efficacy_label(rd["efficacy_score"])
+        
         return {
             "parent_sense":     req.sense,
             "parent_antisense": req.antisense,
@@ -224,7 +283,8 @@ def multi_mod_endpoint(req: MultiModRequest):
             "model_b_baseline": model_b_baseline,
             "naked_baseline":   naked_baseline,
             "model":            req.model,
-            "result":           r.to_dict(),
+            "safety_report":    safety,
+            "result":           rd,
         }
     except FileNotFoundError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -419,10 +479,29 @@ def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
         )
 
         results = []
+        from src.offtarget import get_offtarget_engine
+        engine = get_offtarget_engine()
+        
         for i, v in enumerate(variants):
             p = getattr(v, 'penalties', None) or {}
+            
+            ot = engine.validate_safety(v.sense, req.antisense, v.antisense, v.sense)
+            if ot["overallSafetyScore"] < 100:
+                p_ot = 100 - ot["overallSafetyScore"]
+                p["offtarget"] = round(p_ot * 0.2, 1)
+                
             total_pen = sum(p.values())
-            raw_score = round(v.efficacy_score + 0.70 * total_pen, 2)
+            # Reconstruct raw score before new penalties
+            old_total_pen = sum((getattr(v, 'penalties', None) or {}).values())
+            if "offtarget" in p:
+                old_total_pen -= p["offtarget"]
+                
+            raw_score = round(v.efficacy_score + 0.70 * old_total_pen, 2)
+            new_efficacy = round(raw_score - 0.70 * total_pen, 2)
+            if not ot["isSafe"]:
+                new_efficacy = 0
+            new_efficacy = max(0, new_efficacy)
+
             entry = {
                 "rank": i + 1,
                 "sense": v.sense,
@@ -432,13 +511,22 @@ def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
                 "mod_strand": v.mod_strand,
                 "mod_positions": v.mod_positions or str(v.mod_position),
                 "raw_efficacy_score": raw_score,
-                "efficacy_score": round(v.efficacy_score, 2),
+                "efficacy_score": new_efficacy,
                 "total_penalty": round(total_pen, 1),
-                "delta_score": round(v.delta_score, 2),
-                "efficacy_label": _efficacy_label(v.efficacy_score),
-                "penalties": {k: round(v, 1) for k, v in p.items()},
+                "delta_score": round(new_efficacy - model_b_baseline, 2),
+                "efficacy_label": _efficacy_label(new_efficacy),
+                "penalties": {k: round(val, 1) for k, val in p.items()},
+                "offtarget_score": ot["overallSafetyScore"],
+                "offtarget_status": ot["status"],
             }
             results.append(entry)
+
+        # Sort variants by the new adjusted efficacy score descending
+        results.sort(key=lambda x: x["efficacy_score"], reverse=True)
+        for idx, res in enumerate(results):
+            res["rank"] = idx + 1
+
+        parent_safety = engine.validate_safety(req.sense, req.antisense, "")
 
         return {
             "parent_sense": req.sense,
@@ -448,6 +536,7 @@ def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
             "naked_baseline": naked_baseline,
             "model": req.model,
             "total_variants": len(results),
+            "parent_safety": parent_safety,
             "results": results,
         }
     except FileNotFoundError as e:

@@ -596,6 +596,20 @@ const API = window.location.origin && window.location.origin !== 'null'
   ? window.location.origin
   : 'http://localhost:8000';
 
+// ─── Certificate Generation ───────────────────────────────────────────────────
+async function generateCertificate(sense, antisense, mods) {
+  try {
+    const res = await fetch(`${API}/generate-certificate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({sense, antisense, antisense_mods: mods || ""})
+    });
+    const data = await res.json();
+    if (res.ok) alert("Success! Certificate saved to: " + data.certificate_path);
+    else alert("Failed: " + data.detail);
+  } catch (e) { alert("Error: " + e.message); }
+}
+
 // ─── Tab switching ────────────────────────────────────────────────────────────
 function switchTab(name, btn) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -991,6 +1005,12 @@ function renderSingleModResults(data) {
         <div>Top <strong>${data.results.length}</strong> of <strong>${data.total_variants}</strong> variants — Model B (baseline recalibrated for chemical space) ${scanModeLabel}</div>
       </div>
       ${parentBanner}
+      ${data.parent_safety ? `
+      <div style="padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;">
+        <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;font-weight:600">Off-Target Safety (Parent)</span>
+        <span style="color:${data.parent_safety.isSafe ? '#34d399' : '#f87171'};font-weight:bold;font-size:0.85rem">${data.parent_safety.status} (${data.parent_safety.overallSafetyScore}%)</span>
+        <button onclick="generateCertificate('${data.parent_sense}', '${data.parent_antisense}', '')" class="use-btn" style="margin-left:auto;background:transparent;">📄 Generate Certificate</button>
+      </div>` : ''}
       <div class="table-wrap">
         <table>
           <thead><tr>
@@ -1109,6 +1129,12 @@ function renderMultiModResult(data) {
       </div>
       <div class="meta-grid">${metas}</div>
       ${penaltyHtml}
+      ${data.safety_report ? `
+      <div style="margin-top:20px;display:flex;align-items:center;gap:12px;padding:14px 18px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+          <span style="font-size:0.75rem;color:var(--muted);text-transform:uppercase;font-weight:600">Off-Target Safety</span>
+          <span style="color:${data.safety_report.isSafe ? '#34d399' : '#f87171'};font-weight:bold">${data.safety_report.status} (${data.safety_report.overallSafetyScore}%)</span>
+          <button onclick="generateCertificate('${data.parent_sense}', '${data.parent_antisense}', document.getElementById('mm-amods').value)" class="use-btn" style="margin-left:auto;">📄 Generate Certificate</button>
+      </div>` : ''}
     </div>`;
 }
 
@@ -1135,13 +1161,14 @@ function scoreBreakdownPopup(r) {
   const p = r.penalties || {};
   const totalPen = r.total_penalty || Object.values(p).reduce((a,b) => a+b, 0);
 
-  const penaltyRows = [
-    { key: 'nuclease', label: 'Nuclease Shielding', color: p.nuclease < 4 ? '#34d399' : p.nuclease < 8 ? '#fbbf24' : '#f87171' },
-    { key: 'immuno', label: 'Innate Immunogenicity (TLR7/8)', color: p.immuno < 4 ? '#34d399' : p.immuno < 8 ? '#fbbf24' : '#f87171' },
-    { key: 'risc', label: 'RISC Loading Constraints', color: p.risc < 4 ? '#34d399' : p.risc < 8 ? '#fbbf24' : '#f87171' },
-    { key: 'thermo', label: 'Thermodynamic / Structural', color: p.thermo < 4 ? '#34d399' : p.thermo < 8 ? '#fbbf24' : '#f87171' },
-    { key: 'serum', label: 'Serum Exonuclease', color: p.serum < 4 ? '#34d399' : p.serum < 8 ? '#fbbf24' : '#f87171' },
-  ];
+    const penaltyRows = [
+      { key: 'nuclease', label: 'Nuclease Shielding', color: p.nuclease < 4 ? '#34d399' : p.nuclease < 8 ? '#fbbf24' : '#f87171' },
+      { key: 'immuno', label: 'Innate Immunogenicity (TLR7/8)', color: p.immuno < 4 ? '#34d399' : p.immuno < 8 ? '#fbbf24' : '#f87171' },
+      { key: 'risc', label: 'RISC Loading Constraints', color: p.risc < 4 ? '#34d399' : p.risc < 8 ? '#fbbf24' : '#f87171' },
+      { key: 'thermo', label: 'Thermodynamic / Structural', color: p.thermo < 4 ? '#34d399' : p.thermo < 8 ? '#fbbf24' : '#f87171' },
+      { key: 'serum', label: 'Serum Exonuclease', color: p.serum < 4 ? '#34d399' : p.serum < 8 ? '#fbbf24' : '#f87171' },
+      { key: 'offtarget', label: 'Off-Target Safety (Human)', color: p.offtarget < 1 ? '#34d399' : p.offtarget < 15 ? '#fbbf24' : '#f87171' },
+    ];
 
   const pRows = penaltyRows.map(pr => {
     const val = p[pr.key] || 0;
@@ -1239,6 +1266,7 @@ function buildExpandedDetail(sense, antisense, penalties, modSymbol, parentSense
   if (p.risc > 0) legendItems.push(`<span>🎯 RISC: -${p.risc.toFixed(1)}</span>`);
   if (p.thermo > 0) legendItems.push(`<span>🌡️ Thermo: -${p.thermo.toFixed(1)}</span>`);
   if (p.serum > 0) legendItems.push(`<span>💉 Serum: -${p.serum.toFixed(1)}</span>`);
+  if (p.offtarget > 0) legendItems.push(`<span>⚠️ Off-Target: -${p.offtarget.toFixed(1)}</span>`);
 
   return `<div class="seq-view">
     <div class="seq-row">
@@ -1330,6 +1358,12 @@ function renderAutoMultiModResults(data) {
         <div>Top <strong>${displayResults.length}</strong> of <strong>${total}</strong> beam variants — Model <strong>${data.model}</strong></div>
       </div>
       ${parentBadge}
+      ${data.parent_safety ? `
+      <div style="padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;margin-bottom:12px;">
+        <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;font-weight:600">Off-Target Safety (Parent)</span>
+        <span style="color:${data.parent_safety.isSafe ? '#34d399' : '#f87171'};font-weight:bold;font-size:0.85rem">${data.parent_safety.status} (${data.parent_safety.overallSafetyScore}%)</span>
+        <button onclick="generateCertificate('${data.parent_sense}', '${data.parent_antisense}', '')" class="use-btn" style="margin-left:auto;background:transparent;">📄 Generate Certificate</button>
+      </div>` : ''}
       <div class="table-wrap">
         <table>
           <thead><tr>
