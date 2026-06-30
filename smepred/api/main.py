@@ -348,6 +348,9 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
             full_scan=req.full_scan,
         )
 
+        # Truncate to top 100 to prevent massive payload sizes and frontend crashing
+        variants = variants[:100]
+
         formatted_results = []
         for idx, variant in enumerate(variants):
             penalties = getattr(variant, 'penalties', None) or {}
@@ -434,6 +437,9 @@ def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
             calibrator_key=req.calibrator_key,
             normalize_mode=req.normalize_mode,
         )
+
+        # Truncate to top 100 to prevent evaluating safety heuristics on 15,000+ variants
+        variants = variants[:100]
 
         engine = get_offtarget_engine()
         formatted_results = []
