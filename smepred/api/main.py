@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from src.predictor import (
     rank_by_naked_score, 
     predict_modified, 
-    _efficacy_label,
+    _get_efficacy_label,
     _predict_naked, 
     _normalize_scores, 
     _get_model
@@ -299,7 +299,7 @@ def multi_mod_endpoint(req: MultiModRequest):
                 adjusted_score = 0.0
                 
             variant_dict["efficacy_score"] = round(adjusted_score, 1)
-            variant_dict["efficacy_label"] = _efficacy_label(variant_dict["efficacy_score"])
+            variant_dict["efficacy_label"] = _get_efficacy_label(variant_dict["efficacy_score"])
 
         return {
             "parent_sense": req.sense,
@@ -366,7 +366,7 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
                 "efficacy_score": round(variant.efficacy_score, 2),
                 "total_penalty": round(total_penalty, 1),
                 "delta_score": round(variant.delta_score, 2),
-                "efficacy_label": _efficacy_label(variant.efficacy_score),
+                "efficacy_label": _get_efficacy_label(variant.efficacy_score),
                 "penalties": {k: round(v, 1) for k, v in penalties.items()},
             })
 
@@ -473,7 +473,7 @@ def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
                 "efficacy_score": adjusted_score,
                 "total_penalty": round(total_penalty, 1),
                 "delta_score": round(adjusted_score - model_b_baseline, 2),
-                "efficacy_label": _efficacy_label(adjusted_score),
+                "efficacy_label": _get_efficacy_label(adjusted_score),
                 "penalties": {k: round(v, 1) for k, v in penalties.items()},
                 "offtarget_score": safety["overallSafetyScore"],
                 "offtarget_status": safety["status"],
