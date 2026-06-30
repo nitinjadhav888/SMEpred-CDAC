@@ -661,14 +661,14 @@ async function runMultiModFromRank(sense, antisense) {
         sense, antisense,
         model: 'B',
         max_mods: mm,
-        beam_width: Math.min(mm * 3, 30),
+        beam_width: 100,
         full_scan: true,
       })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Multi-mod scan failed');
     renderAutoMultiModResults(data);
-    showError('mm-error', `<div class="info-box">✓ Multi-mod scan complete. <strong>${data.total_variants}</strong> candidates, showing top 30. Top score: <span style="color:var(--accent)">${data.results[0]?.efficacy_score?.toFixed(1) || '—'}</span></div>`);
+    showError('mm-error', `<div class="info-box">✓ Multi-mod scan complete. <strong>${data.total_variants}</strong> candidates, showing top 100. Top score: <span style="color:var(--accent)">${data.results[0]?.efficacy_score?.toFixed(1) || '—'}</span></div>`);
   } catch(e) {
     showError('mm-error', e.message);
   }
@@ -902,7 +902,7 @@ async function loadMultiModFromVariant(idx) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sense, antisense, model,
-        max_mods: mm, beam_width: Math.min(mm * 3, 30),
+        max_mods: mm, beam_width: 100,
         single_results: data.results,
         parent_score: parentScore,
         seed_variant: variant,
@@ -911,7 +911,7 @@ async function loadMultiModFromVariant(idx) {
     const rdata = await res.json();
     if (!res.ok) throw new Error(extractError(rdata));
     renderAutoMultiModResults(rdata);
-    showError('mm-error', `<div class="info-box">✓ Multi-mod scan for variant #${idx+1} complete. <strong>${rdata.total_variants}</strong> candidates (up to 5 modifications each, showing top 30). Top delta: <span style="color:var(--accent)">+${rdata.results[0]?.delta_score?.toFixed(2) || '—'}</span></div>`);
+    showError('mm-error', `<div class="info-box">✓ Multi-mod scan for variant #${idx+1} complete. <strong>${rdata.total_variants}</strong> candidates (up to 5 modifications each, showing top 100). Top delta: <span style="color:var(--accent)">+${rdata.results[0]?.delta_score?.toFixed(2) || '—'}</span></div>`);
   } catch(e) {
     showError('mm-error', e.message);
   }
@@ -1297,13 +1297,13 @@ function buildExpandedDetail(sense, antisense, penalties, modSymbol, parentSense
   </div>`;
 }
 
-// Render Auto Multi-Mod Scan results in Multi-Mod tab (top 30 displayed)
+// Render Auto Multi-Mod Scan results in Multi-Mod tab (top 100 displayed)
 function renderAutoMultiModResults(data) {
   if (!data.results?.length) {
     document.getElementById('mm-results').innerHTML = '<div class="error-box">No variants returned.</div>';
     return;
   }
-  const displayLimit = 30;
+  const displayLimit = 100;
   const displayResults = data.results.slice(0, displayLimit);
   const total = data.total_variants;
 

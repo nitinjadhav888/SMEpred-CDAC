@@ -297,7 +297,7 @@ def multi_mod_scan(
         feature_matrix = extract_positional_features_batch(s_list, a_list, ps_list, pa_list)
         model = _get_model("B")
         raw_predictions = model.predict(feature_matrix)
-        normalized_scores = _normalize_scores(raw_predictions, mode="identity")
+        normalized_scores = _normalize_scores(raw_predictions, mode="rescale")
 
         scored_variants = []
         for variant, raw_score in zip(variants, normalized_scores):
@@ -451,6 +451,16 @@ def multi_mod_scan(
         current_beam = scored_candidates[:beam_width]
         all_evaluated_variants.extend(scored_candidates)
 
-    all_evaluated_variants.sort(key=lambda v: v.efficacy_score, reverse=True)
-    logger.info(f"Beam search complete. Evaluated {len(all_evaluated_variants)} total variants.")
-    return all_evaluated_variants
+    # Deduplicate based on exact sequence string to prevent permutations clogging the top 100
+    unique_variants = {}
+    for v in all_evaluated_variants:
+        seq_key = v.sense + "|" + v.antisense
+        # If we somehow have identical sequences with different scores, keep the highest
+        if seq_key not in unique_variants or v.efficacy_score > unique_variants[seq_key].efficacy_score:
+            unique_variants[seq_key] = v
+            
+    final_variants = list(unique_variants.values())
+    final_variants.sort(key=lambda v: v.efficacy_score, reverse=True)
+    
+    logger.info(f"Beam search complete. Evaluated {len(all_evaluated_variants)} total permutations. Returning {len(final_variants)} unique sequences.")
+    return final_variants

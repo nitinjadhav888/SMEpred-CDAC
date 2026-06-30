@@ -118,9 +118,12 @@ def _normalize_scores(
         return np.clip(raw_predictions, 0.0, 100.0)
         
     if mode == "rescale":
-        # Known max raw output of the cm-siRNA model
-        max_raw = 113.8  
-        return np.clip((raw_predictions / max_raw) * 100.0, 0.0, 100.0)
+        # Dynamic Batch Rescaling: Preserves variance among highly modified candidates
+        # without arbitrarily flat-topping at 100.0
+        batch_max = np.max(raw_predictions)
+        if batch_max > 100.0:
+            return (raw_predictions / batch_max) * 100.0
+        return np.clip(raw_predictions, 0.0, 100.0)
         
     if mode == "calibrate" or calibrator_key is not None:
         calibrator = _get_calibrator(calibrator_key)
@@ -335,7 +338,7 @@ def predict_modified(
     
     parent_b_matrix = extract_positional_features_batch([sense], [antisense], [sense], [antisense])
     model_b = _get_model("B")
-    raw_model_b_score = float(_normalize_scores(np.array([model_b.predict(parent_b_matrix)[0]]), mode="identity")[0])
+    raw_model_b_score = float(_normalize_scores(np.array([model_b.predict(parent_b_matrix)[0]]), mode="rescale")[0])
 
     # 2. Generate variants
     if mode == "scan":
@@ -378,7 +381,7 @@ def predict_modified(
 
     # 4. Predict
     raw_variant_scores = model_b.predict(feature_matrix)
-    normalized_scores = _normalize_scores(raw_variant_scores, mode="identity")
+    normalized_scores = _normalize_scores(raw_variant_scores, mode="rescale")
 
     # 5. Apply biophysical constraints and rank
     parent_adjusted_score, _, _ = calculate_adjusted_efficacy(
