@@ -37,6 +37,7 @@ class OffTargetEngine:
         """
         self.transcriptome_path: str = transcriptome_path
         self.sequence: str = ""
+        self._cache: Dict[str, Dict[str, Any]] = {}
         self._load_transcriptome()
 
     def _load_transcriptome(self) -> None:
@@ -132,14 +133,31 @@ class OffTargetEngine:
             )
             report["overallSafetyScore"] -= 5.0
             
-        # 2. 15-mer Slicer-mediated Exclusion Check
-        # Utilizes highly optimized Boyer-Moore (in operator) against the gigabyte string
-        has_critical_match = False
-        if self.sequence:
-            for i in range(len(antisense) - 15 + 1):
-                if antisense[i : i + 15] in self.sequence:
-                    has_critical_match = True
-                    break
+        # 2. 15-mer Slicer-mediated Exclusion Check & 3. Seed Region Analysis
+        # These operations search a ~400MB string. Since multi-mod variants share the same parent,
+        # we cache the string-search results to prevent redundant gigabyte-scale scans.
+        cache_key = antisense
+        if cache_key not in self._cache:
+            has_crit_match = False
+            if self.sequence:
+                for i in range(len(antisense) - 15 + 1):
+                    if antisense[i : i + 15] in self.sequence:
+                        has_crit_match = True
+                        break
+            
+            seed_seq = antisense[1:8]
+            seed_count = self.sequence.count(seed_seq) if self.sequence else 0
+            
+            self._cache[cache_key] = {
+                "has_critical_match": has_crit_match,
+                "seed_occurrences": seed_count,
+                "seed_region": seed_seq
+            }
+            
+        cached_data = self._cache[cache_key]
+        has_critical_match = cached_data["has_critical_match"]
+        seed_occurrences = cached_data["seed_occurrences"]
+        seed_region = cached_data["seed_region"]
                 
         if has_critical_match:
             report["riskFactors"].append(
@@ -150,9 +168,7 @@ class OffTargetEngine:
             report["isSafe"] = False
             report["status"] = "TOXIC"
             
-        # 3. Seed Region Analysis (miRNA-like off-target profile)
-        seed_region = antisense[1:8]  # positions 2-8
-        seed_occurrences = self.sequence.count(seed_region) if self.sequence else 0
+        # 3. Seed Region Mitigation Analysis
         
         # Scientific Mitigation (Parvathaneni 2026 & Neumeier 2021)
         is_seed_mitigated = False
