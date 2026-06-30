@@ -42,8 +42,8 @@ class OffTargetEngine:
 
     def _load_transcriptome(self) -> None:
         """
-        Loads the FASTA reference file and concatenates all sequences into a 
-        single contiguous string for high-speed Boyer-Moore substring scanning.
+        Loads the FASTA reference file and concatenates sequences with a sentinel 
+        to prevent boundary crossing false positives, while maintaining fast string search.
         """
         try:
             if not os.path.exists(self.transcriptome_path):
@@ -51,10 +51,20 @@ class OffTargetEngine:
                 return
 
             with open(self.transcriptome_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-                # Exclude metadata headers; concatenate raw sequences
-                seqs = [line.strip().upper() for line in lines if not line.startswith(">")]
-                self.sequence = "".join(seqs)
+                current_seq = []
+                seqs = []
+                for line in f:
+                    if line.startswith(">"):
+                        if current_seq:
+                            seqs.append("".join(current_seq))
+                        current_seq = []
+                    else:
+                        current_seq.append(line.strip().upper())
+                if current_seq:
+                    seqs.append("".join(current_seq))
+                
+                # Join with 15 N's so no 15-mer or seed can match across boundaries
+                self.sequence = ("N" * 15).join(seqs)
                 
             logger.info(f"Loaded transcriptome matrix: {len(self.sequence):,} bases.")
         except Exception as e:
@@ -76,12 +86,20 @@ class OffTargetEngine:
         Returns:
             float: Free Energy difference. Negative values mean Antisense is weaker (optimal).
         """
-        energy_map = {'A': -2.0, 'U': -2.0, 'T': -2.0, 'G': -3.0, 'C': -3.0}
+        # RNA Nearest-Neighbor ΔH values, kcal/mol (SantaLucia & Hicks 2004, Table 2)
+        rna_nn_dh = {
+            'AA': -6.82, 'AU': -9.38, 'AC': -10.44, 'AG': -7.69,
+            'UA': -9.38, 'UU': -6.82, 'UC': -8.33,  'UG': -13.39,
+            'CA': -9.38, 'CU': -10.44,'CC': -12.11, 'CG': -10.64,
+            'GA': -7.69, 'GU': -13.39,'GC': -8.26,  'GG': -12.11,
+        }
         
-        # Sense 5' terminus (positions 0-3)
-        sense_energy = sum(energy_map.get(base, -2.5) for base in sense[:4])
-        # Antisense 5' terminus (positions 0-3)
-        antisense_energy = sum(energy_map.get(base, -2.5) for base in antisense[:4])
+        def terminus_energy(seq: str, n: int = 4) -> float:
+            s = seq[:n].upper().replace('T', 'U')
+            return sum(rna_nn_dh.get(s[i:i+2], -8.0) for i in range(len(s) - 1))
+        
+        sense_energy = terminus_energy(sense)
+        antisense_energy = terminus_energy(antisense)
         
         return sense_energy - antisense_energy
 
@@ -90,7 +108,9 @@ class OffTargetEngine:
         sense: str, 
         antisense: str, 
         antisense_mods: str = "", 
-        mod_sense: str = ""
+        mod_sense: str = "",
+        delivery_route: str = "hepatic",
+        base_antisense: str = ""
     ) -> Dict[str, Any]:
         """
         Executes the full safety heuristic pipeline against a given candidate.
@@ -100,6 +120,8 @@ class OffTargetEngine:
             antisense (str): The parent antisense sequence.
             antisense_mods (str): The modification mask for the antisense strand.
             mod_sense (str): The modification mask for the sense strand.
+            delivery_route (str): Target delivery route (e.g. "hepatic").
+            base_antisense (str): The unmodified parent antisense sequence.
             
         Returns:
             Dict[str, Any]: A detailed safety dossier containing the final score, 
@@ -108,6 +130,9 @@ class OffTargetEngine:
         sense = sense.upper()
         antisense = antisense.upper()
         
+        def _reverse_complement(seq: str) -> str:
+            return seq.upper().translate(str.maketrans("AUGC", "UACG"))[::-1]
+            
         report: Dict[str, Any] = {
             "isSafe": True,
             "overallSafetyScore": 100.0,
@@ -127,7 +152,8 @@ class OffTargetEngine:
             report["overallSafetyScore"] -= 40.0
             
         # 1.b. AGO2 5' Terminal Preference
-        if antisense[0] not in ['A', 'U', 'T']:
+        underlying_nt = base_antisense[0] if base_antisense else antisense[0]
+        if underlying_nt not in ['A', 'U', 'T']:
             report["safetyNotes"].append(
                 "Note: Antisense 5' end is not A or U. This is sub-optimal for Ago2 MID-domain anchoring."
             )
@@ -140,13 +166,15 @@ class OffTargetEngine:
         if cache_key not in self._cache:
             has_crit_match = False
             if self.sequence:
-                for i in range(len(antisense) - 15 + 1):
-                    if antisense[i : i + 15] in self.sequence:
+                sense_rc = _reverse_complement(antisense)
+                for i in range(len(sense_rc) - 15 + 1):
+                    if sense_rc[i : i + 15] in self.sequence:
                         has_crit_match = True
                         break
             
-            seed_seq = antisense[1:8]
-            seed_count = self.sequence.count(seed_seq) if self.sequence else 0
+            seed_seq = antisense[1:7]
+            seed_complement = _reverse_complement(seed_seq)
+            seed_count = self.sequence.count(seed_complement) if self.sequence else 0
             
             self._cache[cache_key] = {
                 "has_critical_match": has_crit_match,
@@ -197,7 +225,8 @@ class OffTargetEngine:
                 report["overallSafetyScore"] -= min(30.0, seed_occurrences * 5.0)
                 
         # 4. Toll-Like Receptor (TLR7 / TLR8) Motif Masking
-        tlr_motifs = ["UGGC", "GUUC", "UGU", "UUG"]
+        # Hierarchical TLR7/8 agonist motifs (Goodchild 2009; Judge 2005; Heil 2004)
+        tlr_motifs = ["GUUGU", "GUGU", "UGU", "UUG", "UGGC", "GUUC"]
         
         def _evaluate_tlr_masking(strand_seq: str, mod_strand_mask: str, strand_name: str) -> None:
             """Evaluates whether immunostimulatory GU motifs are shielded by 2'-OMe."""
@@ -231,13 +260,13 @@ class OffTargetEngine:
         if (mod_sense and "4" in mod_sense) or (antisense_mods and "4" in antisense_mods):
             has_galnac = True
             
-        if not has_galnac:
+        if delivery_route == "hepatic" and not has_galnac:
             report["riskFactors"].append(
                 "WARNING: Missing GalNAc ('4') delivery conjugate. Predicted hepatic uptake is 0%. "
                 "In vivo pharmacokinetic profile will fail."
             )
             report["overallSafetyScore"] -= 10.0
-        else:
+        elif has_galnac:
             report["safetyNotes"].append(
                 "GalNAc ('4') conjugate detected. Hepatic uptake and PK profile validated."
             )

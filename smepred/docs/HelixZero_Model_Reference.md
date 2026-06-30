@@ -97,7 +97,7 @@ Each domain is strictly orthogonal — no biological feature is penalized by mor
 ### 3.1 Nuclease Penalty (Range: 0–16)
 
 ```
-def nuclease_penalty(sense, antisense):
+def calculate_nuclease_penalty(sense, antisense):
     ps_count = count_PS(sense + antisense)
     mod_count = count_2prime_modified(sense + antisense)
     density = mod_count / 42  # fraction over 21+21 positions
@@ -120,7 +120,7 @@ def nuclease_penalty(sense, antisense):
 ### 3.2 Immuno Penalty (Range: 0–28)
 
 ```
-def immuno_penalty(sense, antisense):
+def calculate_immuno_penalty(sense, antisense):
     total = 0
     # Unmodified uridine penalties
     for each U in antisense[1:8]:    total += 2.0    # Seed U (Sioud 2004)
@@ -156,7 +156,7 @@ def immuno_penalty(sense, antisense):
 ### 3.3 RISC Penalty (Range: −10 to 60)
 
 ```
-def risc_penalty(sense, antisense):
+def calculate_risc_penalty(sense, antisense):
     total = 0
     # 5'-phosphate
     if antisense[0] != '1':    total += 5    # Missing 5'-P (Frank 2010)
@@ -203,7 +203,7 @@ def risc_penalty(sense, antisense):
 ### 3.4 Thermo Penalty (Range: 0–20)
 
 ```
-def thermo_penalty(sense, antisense):
+def calculate_thermo_penalty(sense, antisense):
     total = 0
     gc = GC_content(sense)  # sense GC%
 
@@ -220,7 +220,7 @@ def thermo_penalty(sense, antisense):
 ### 3.5 Serum Penalty (Range: 0–17)
 
 ```
-def serum_penalty(sense, antisense, parent_sense, parent_antisense):
+def calculate_serum_penalty(sense, antisense, parent_sense, parent_antisense):
     total = 0
     # Exonuclease protection — termini only
     # AS 5': PS or 5'-PO₄ (symbol '1')
@@ -242,13 +242,13 @@ def serum_penalty(sense, antisense, parent_sense, parent_antisense):
 ## 4. Adjusted Score Formula
 
 ```
-def adjusted_efficacy_score(raw_score, sense, antisense, parent_sense, parent_antisense):
+def calculate_adjusted_efficacy(raw_score, sense, antisense, parent_sense, parent_antisense):
     penalties = {}
-    penalties['nuclease'] = nuclease_penalty(sense, antisense)
-    penalties['immuno']   = immuno_penalty(sense, antisense)
-    penalties['risc']     = risc_penalty(sense, antisense)
-    penalties['thermo']   = thermo_penalty(sense, antisense)
-    penalties['serum']    = serum_penalty(sense, antisense, parent_sense, parent_antisense)
+    penalties['nuclease'] = calculate_nuclease_penalty(sense, antisense)
+    penalties['immuno']   = calculate_immuno_penalty(sense, antisense)
+    penalties['risc']     = calculate_risc_penalty(sense, antisense)
+    penalties['thermo']   = calculate_thermo_penalty(sense, antisense)
+    penalties['serum']    = calculate_serum_penalty(sense, antisense, parent_sense, parent_antisense)
 
     total_penalty = sum(penalties.values())
     adjusted = max(0.0, min(100.0, raw_score - 0.70 * total_penalty))

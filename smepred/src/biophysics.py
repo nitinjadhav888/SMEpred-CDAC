@@ -203,8 +203,9 @@ def calculate_risc_penalty(
         if antisense[i] == "L":
             total_penalty += 5.0
 
-    # MOE ("E") is exceptionally bulky and disrupts the central catalytic cleft
-    for i in range(1, min(14, len(antisense))):
+    # MOE ("E") is bulky and disrupts the central catalytic cleft (positions 3-12)
+    # Positions 1-2 and 13+ are clinically validated in Inclisiran (FDA 2021)
+    for i in range(2, min(12, len(antisense))):
         if antisense[i] == "E":
             total_penalty += 3.0
 
@@ -273,9 +274,9 @@ def calculate_thermo_penalty(
     base_seq = base_sense.upper()
 
     gc_content = calculate_gc_percentage(base_seq)
-    if gc_content < 30.0 or gc_content > 55.0:
+    if gc_content < 30.0 or gc_content > 65.0:
         total_penalty += 8.0
-    elif gc_content < 35.0 or gc_content > 50.0:
+    elif gc_content < 35.0 or gc_content > 55.0:
         total_penalty += 3.0
 
     if has_internal_palindrome(base_seq):
@@ -283,6 +284,12 @@ def calculate_thermo_penalty(
 
     if _has_homopolymer(base_seq):
         total_penalty += 5.0
+
+    # Schwarz/Khvorova 2003: Positional nucleotide preferences for RISC strand loading
+    if base_antisense[0].upper() not in ('A', 'U'):
+        total_penalty += 4.0  # Guide 5' end should be A/U for optimal Ago2 loading
+    if len(base_sense) >= 19 and base_sense[18].upper() not in ('G', 'C'):
+        total_penalty += 3.0  # Sense 3' position 19 should be G/C for thermodynamic asymmetry
 
     if re.search(r"[GC]{6}", base_seq):
         total_penalty += 3.0

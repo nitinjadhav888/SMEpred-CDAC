@@ -130,13 +130,13 @@ SEED_RESCUING_MODS = {"M", "F", "L", "E"}
 
 If a rescue modification is present in the seed region **and** the baseline was Toxic or Caution, the label is overridden to **"Mitigated"**.
 
-**Why they work**: 2'-OMe (M) and 2'-Fluoro (F) at seed positions reduce the thermodynamic stability of seed-target duplexes, decreasing off-target silencing while preserving on-target activity (Janas et al., Nucleic Acids Res 2018).
+**Why they work**: Modifications like Glycol Nucleic Acid (GNA) at position 7 (e.g., GNA@7), or 2'-OMe (M) and 2'-Fluoro (F) at seed positions reduce the thermodynamic stability of seed-target duplexes, decreasing off-target silencing while preserving on-target activity (Janas et al., Nucleic Acids Res 2018; Schlegel et al. 2022).
 
 ---
 
 ## 3. Functional Checks
 
-These are **structural filters** that flag siRNAs likely to have poor specificity or synthesis issues. They are applied to the **sense strand** only (the guide/antisense is the active strand):
+These are **structural filters** that flag siRNAs likely to have poor specificity or synthesis issues. They are applied strictly to **BOTH the sense and antisense strands** to ensure full molecular viability:
 
 | Check | Rule | Why It Matters |
 |-------|------|---------------|
@@ -148,11 +148,11 @@ These are **structural filters** that flag siRNAs likely to have poor specificit
 ### GC Content
 
 ```python
-gc_pct = (sense.count("G") + sense.count("C")) / 21 * 100
+gc_pct = calculate_gc_percentage(normalized_strand)
 # Pass: 30% ≤ gc_pct ≤ 65%
 ```
 
-**Science**: siRNA activity is optimal in this range. Below 30%, the duplex is too weak for RISC loading. Above 65%, it becomes too stable, increasing off-target seed effects and reducing strand bias.
+**Science**: siRNA activity is optimal in this range. Below 30%, the duplex is too weak for RISC loading. Above 65%, it becomes too stable, increasing off-target seed effects and reducing strand bias. This rule is applied uniformly across the entire system.
 
 ### Homopolymer Run
 
@@ -183,6 +183,11 @@ For each 4-base window, checks if the reverse complement appears anywhere downst
 ```
 
 A palindrome allows the strand to **self-hybridize** (hairpin), reducing the effective concentration available for RISC loading.
+
+### Schwarz/Khvorova Positional Loading Rules
+The Biophysics Engine specifically evaluates:
+1. **Antisense Position 1 (5' End)**: Must be A or U. This ensures weak 5' thermodynamic stability, promoting optimal loading into the Ago2 MID domain.
+2. **Sense Position 19 (3' End)**: Must be G or C. This enforces thermodynamic asymmetry across the duplex.
 
 ---
 
@@ -235,6 +240,7 @@ These modify the **ribose sugar** at the 2' position — the most common class f
 | **Q** | Abasic | Missing base entirely — disrupts base pairing; used as a spacer |
 | **6** | UNA | Unlocked nucleic acid — flexible acyclic sugar; strong duplex destabilization |
 | **7** | ANA | Arabino nucleic acid — 2' epimer of RNA |
+| **8** | GNA | Glycol Nucleic Acid — Highly destabilizing, clinically validated at pos 7 to completely rescue seed toxicity (ESC+ design) |
 
 ### Backbone Modifications (4 symbols)
 

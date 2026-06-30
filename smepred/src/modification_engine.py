@@ -225,6 +225,25 @@ def multimod_gen(
 
 # ─── Mode 3: Combinatorial Beam Search Scan ───────────────────────────────────
 
+def _is_sterically_viable(modified_strand: str, parent_strand: str) -> bool:
+    """
+    Rejects modification patterns with >= 3 consecutive bulky modifications
+    (LNA, ENA, MOE) that create extreme backbone rigidity incompatible with
+    Ago2 accommodation (Obad et al. 2011; ESC+ clinical guidelines).
+    """
+    consecutive_bulky = 0
+    for i in range(len(modified_strand)):
+        char = modified_strand[i]
+        parent_char = parent_strand[i] if i < len(parent_strand) else char
+        if char != parent_char and char in ('L', 'Y', 'E'):
+            consecutive_bulky += 1
+            if consecutive_bulky >= 3:
+                return False
+        else:
+            consecutive_bulky = 0
+    return True
+
+
 def multi_mod_scan(
     sense: str,
     antisense: str,
@@ -408,6 +427,12 @@ def multi_mod_scan(
                 tracking_symbols.append(addon_variant.mod_symbol)
                 tracking_positions.append(addon_variant.mod_position)
                 tracking_strands.append(addon_variant.mod_strand)
+
+                # Check steric viability — reject consecutive bulky mods
+                if not _is_sterically_viable("".join(mutable_antisense), antisense):
+                    continue
+                if not _is_sterically_viable("".join(mutable_sense), sense):
+                    continue
 
                 round_candidates.append(CmSiRNA(
                     sense="".join(mutable_sense),

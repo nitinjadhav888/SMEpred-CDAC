@@ -174,7 +174,7 @@ User Input (sense, antisense, options)
                ▼
 ┌──────────────────────────────┐
 │  biophysics.py               │  ← Apply 5-domain biophysical penalties
-│  adjusted_efficacy_score()   │     adjusted = raw − 0.70 × total_penalty
+│  calculate_adjusted_efficacy()   │     adjusted = raw − 0.70 × total_penalty
 │                              │     Clamped to [0, 100]
 └──────────────┬───────────────┘
                │ Adjusted scores with penalty breakdown
@@ -823,11 +823,11 @@ function multi_mod_scan(sense, antisense, max_mods=14, beam_width=30):
 ```
 function adjusted_score(raw, sense, antisense, parent_sense, parent_antisense):
     penalties = {}
-    penalties['nuclease'] = nuclease_penalty(sense, antisense)
-    penalties['immuno']   = immuno_penalty(sense, antisense)
-    penalties['risc']     = risc_penalty(sense, antisense)
-    penalties['thermo']   = thermo_penalty(sense, antisense)
-    penalties['serum']    = serum_penalty(sense, antisense, parent_sense, parent_antisense)
+    penalties['nuclease'] = calculate_nuclease_penalty(sense, antisense)
+    penalties['immuno']   = calculate_immuno_penalty(sense, antisense)
+    penalties['risc']     = calculate_risc_penalty(sense, antisense)
+    penalties['thermo']   = calculate_thermo_penalty(sense, antisense)
+    penalties['serum']    = calculate_serum_penalty(sense, antisense, parent_sense, parent_antisense)
     total = sum(penalties.values())
     adjusted = raw − 0.70 × total
     adjusted = clamp(adjusted, 0, 100)

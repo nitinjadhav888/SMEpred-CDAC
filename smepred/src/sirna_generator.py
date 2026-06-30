@@ -129,8 +129,9 @@ def generate_dsirna_candidate(dsirna_sequence: str) -> List[SiRNACandidate]:
         logger.error(f"Invalid DsiRNA length: {len(dsirna_sequence)} nt.")
         raise ValueError(f"DsiRNA input must be 25–30 nt, got {len(dsirna_sequence)}.")
         
-    # Mimic Dicer cleavage: Extract the 5' 21-mer
-    sense_strand = dsirna_sequence[:sirna_length]
+    # Mimic Dicer cleavage: Dicer anchors at 3' end and cleaves ~21 nt inward
+    # (Kim et al., Nat Biotechnol 2005). The active mature siRNA is the 3' terminal 21-mer.
+    sense_strand = dsirna_sequence[-sirna_length:]
     antisense_strand = _calculate_reverse_complement(sense_strand)
     
     logger.info(f"Successfully processed DsiRNA sequence. Extracted mature 21-mer.")

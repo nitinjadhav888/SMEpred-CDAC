@@ -191,7 +191,10 @@ def annotate_candidates(senses: List[str], antisenses: List[str]) -> List[Dict[s
     annotations = []
     for sense_strand, anti_strand in zip(senses, antisenses):
         viability = get_toxicity_score(anti_strand)
-        is_functional, failure_reason = check_functionality(sense_strand)
+        is_functional_sense, reason_sense = check_functionality(sense_strand)
+        is_functional_anti, reason_anti = check_functionality(anti_strand)
+        is_functional = is_functional_sense and is_functional_anti
+        failure_reason = reason_sense or reason_anti
         
         annotations.append({
             "toxicity_score": None if viability is None else round(viability, 1),

@@ -92,12 +92,12 @@
 
 | Principle | Literature Support | Our Implementation |
 |-----------|-------------------|-------------------|
-| **2'-OMe at AS position 2 is detrimental** | **CMS.pdf** (Prakash 2005): "Positional effect of chemical modifications on siRNA activity" | Penalized in `risc_penalty()` +8 at AS position 2 |
+| **2'-OMe at AS position 2 is detrimental** | **CMS.pdf** (Prakash 2005): "Positional effect of chemical modifications on siRNA activity" | Penalized in `calculate_risc_penalty()` +8 at AS position 2 |
 | **5'-phosphate required for RISC loading** | **CMS.pdf** [10-13], **Chemical modification resolves asymmetry.pdf** | 5'-Phos (symbol "1") is a supported modification; missing 5'-P penalized +10 |
-| **PS at 3'-termini improves nuclease resistance** | **Chemical and structural modifications.pdf** [10, 105-106] | `nuclease_penalty()` applies −3 per missing PS at termini |
-| **2'-OMe at seed region reduces off-target effects** | **CMS.pdf** (Jackson 2006): "Position-specific chemical modification of siRNAs reduces off-target transcript silencing" | `risc_penalty()` applies +2 per seed-region 2'-OMe; seed toxicity rescue flags 2'-OMe as "Mitigated" |
-| **UG motifs trigger TLR7/8 activation** | **SIRNA FULL.pdf** (Judge 2005): "Sequence-dependent stimulation of the innate immune response by synthetic siRNA" | `immuno_penalty()` penalizes UG and GU-rich motifs |
-| **Low GC content reduces siRNA activity** | **Design.pdf** (Reynolds 2004): "Rational siRNA design for RNA interference" — recommends 30-52% GC | `thermo_penalty()` penalizes GC <30% and >55% |
+| **PS at 3'-termini improves nuclease resistance** | **Chemical and structural modifications.pdf** [10, 105-106] | `calculate_nuclease_penalty()` applies −3 per missing PS at termini |
+| **2'-OMe at seed region reduces off-target effects** | **CMS.pdf** (Jackson 2006): "Position-specific chemical modification of siRNAs reduces off-target transcript silencing" | `calculate_risc_penalty()` applies +2 per seed-region 2'-OMe; seed toxicity rescue flags 2'-OMe as "Mitigated" |
+| **UG motifs trigger TLR7/8 activation** | **SIRNA FULL.pdf** (Judge 2005): "Sequence-dependent stimulation of the innate immune response by synthetic siRNA" | `calculate_immuno_penalty()` penalizes UG and GU-rich motifs |
+| **Low GC content reduces siRNA activity** | **Design.pdf** (Reynolds 2004): "Rational siRNA design for RNA interference" — recommends 30-52% GC | `calculate_thermo_penalty()` penalizes GC <30% and >55% |
 
 ---
 

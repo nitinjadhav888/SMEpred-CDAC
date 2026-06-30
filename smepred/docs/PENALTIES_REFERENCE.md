@@ -7,7 +7,7 @@ Five orthogonal domains adjust the raw LightGBM efficacy score downward (or upwa
 ## Adjustment Formula
 
 ```
-adjusted_efficacy_score = max(0.0, min(100.0, raw_score − 0.70 × total_penalty))
+calculate_adjusted_efficacy = max(0.0, min(100.0, raw_score − 0.70 × total_penalty))
 ```
 
 The 0.70 factor is empirically calibrated so that:

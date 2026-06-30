@@ -14,9 +14,9 @@ Key checks:
 """
 import sys
 import warnings; warnings.filterwarnings('ignore')
-from src.biophysics import adjusted_efficacy_score
+from src.biophysics import calculate_adjusted_efficacy
 from src.features import extract_positional_features_batch
-from src.predictor import _get_model, _efficacy_label
+from src.predictor import _get_model, _get_efficacy_label
 
 
 def _gc(seq):
@@ -85,15 +85,15 @@ for name, sense, antisense in SEQUENCES:
     model = _get_model("B")
     X = extract_positional_features_batch([esc_s], [esc_a], [sense], [antisense])
     raw_esc = float(model.predict(X)[0])
-    adj_esc, pen_esc, total_esc = adjusted_efficacy_score(raw_esc, esc_s, esc_a, sense, antisense)
+    adj_esc, pen_esc, total_esc = calculate_adjusted_efficacy(raw_esc, esc_s, esc_a, sense, antisense)
     esc_adj = round(adj_esc, 2)
-    esc_label = _efficacy_label(esc_adj)
+    esc_label = _get_efficacy_label(esc_adj)
 
     X2 = extract_positional_features_batch([escp_s], [escp_a], [sense], [antisense])
     raw_escp = float(model.predict(X2)[0])
-    adj_escp, pen_escp, total_escp = adjusted_efficacy_score(raw_escp, escp_s, escp_a, sense, antisense)
+    adj_escp, pen_escp, total_escp = calculate_adjusted_efficacy(raw_escp, escp_s, escp_a, sense, antisense)
     escp_adj = round(adj_escp, 2)
-    escp_label = _efficacy_label(escp_adj)
+    escp_label = _get_efficacy_label(escp_adj)
 
     # Risk assessment
     nuc_ok = pen_esc['nuclease'] <= 5
