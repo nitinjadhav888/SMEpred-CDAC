@@ -38,8 +38,8 @@ from src.predictor import (
     _normalize_scores, 
     _get_model
 )
-from src.biophysics import adjusted_efficacy_score
-from src.filters import toxicity_score, toxicity_label, seed_of_antisense
+from src.biophysics import calculate_adjusted_efficacy
+from src.filters import get_toxicity_score, get_toxicity_label, _extract_seed
 from src.offtarget import get_offtarget_engine
 from src.features import extract_batch_v4, extract_positional_features_batch
 from src.modification_engine import multi_mod_scan
@@ -228,8 +228,8 @@ def single_mod_endpoint(req: SingleModRequest):
         top_results = results[:req.top_n] if req.top_n > 0 else results
         
         # Calculate parent baseline toxicity
-        parent_viability = toxicity_score(req.antisense)
-        parent_seed = seed_of_antisense(req.antisense)
+        parent_viability = get_toxicity_score(req.antisense)
+        parent_seed = _extract_seed(req.antisense)
         
         # Calculate parent baseline transcriptome safety
         engine = get_offtarget_engine()
@@ -247,7 +247,7 @@ def single_mod_endpoint(req: SingleModRequest):
             "parent_toxicity": {
                 "seed": parent_seed,
                 "viability": round(parent_viability, 1) if parent_viability is not None else None,
-                "label": toxicity_label(parent_viability),
+                "label": get_toxicity_label(parent_viability),
             },
             "parent_safety": parent_safety,
             "results": [r.to_dict() for r in top_results],
@@ -327,7 +327,7 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
         parent_features = extract_batch_v4([req.sense], [req.antisense])
         raw_naked = _predict_naked(parent_features)
         raw_parent_score = float(_normalize_scores(raw_naked, calibrator_key="normal")[0])
-        naked_baseline_adj, _, _ = adjusted_efficacy_score(
+        naked_baseline_adj, _, _ = calculate_adjusted_efficacy(
             raw_parent_score, req.sense, req.antisense, req.sense, req.antisense
         )
         
@@ -336,7 +336,7 @@ def multi_mod_scan_endpoint(req: MultiModScanRequest):
         )
         model_b = _get_model(req.model)
         raw_b_score = float(model_b.predict(parent_features_b)[0])
-        model_b_adj, _, _ = adjusted_efficacy_score(
+        model_b_adj, _, _ = calculate_adjusted_efficacy(
             raw_b_score, req.sense, req.antisense, req.sense, req.antisense
         )
 
@@ -411,7 +411,7 @@ def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
         if req.parent_score is None:
             features = extract_batch_v4([req.sense], [req.antisense])
             raw = float(_normalize_scores(_predict_naked(features), mode=req.normalize_mode)[0])
-            naked_adj, _, _ = adjusted_efficacy_score(raw, req.sense, req.antisense, req.sense, req.antisense)
+            naked_adj, _, _ = calculate_adjusted_efficacy(raw, req.sense, req.antisense, req.sense, req.antisense)
             parent_baseline = round(naked_adj, 2)
         else:
             parent_baseline = req.parent_score
@@ -419,7 +419,7 @@ def multi_mod_from_single_endpoint(req: MultiModFromSingleRequest):
         features_b = extract_positional_features_batch([req.sense], [req.antisense], [req.sense], [req.antisense])
         mb = _get_model("B")
         raw_b = float(mb.predict(features_b)[0])
-        mb_adj, _, _ = adjusted_efficacy_score(raw_b, req.sense, req.antisense, req.sense, req.antisense)
+        mb_adj, _, _ = calculate_adjusted_efficacy(raw_b, req.sense, req.antisense, req.sense, req.antisense)
         model_b_baseline = round(mb_adj, 2)
 
         variants = multi_mod_scan(
