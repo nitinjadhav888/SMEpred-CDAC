@@ -1,6 +1,6 @@
 # HelixZero-CMS: Chemical Modification Scanner & Safety Engine
 
-HelixZero-CMS is a production-grade, state-of-the-art computational engine and API designed to optimize Small Interfering RNA (siRNA) therapeutics. It provides end-to-end Machine Learning-driven prediction of unmodified (naked) siRNA silencing efficacy, exhaustive chemical modification scanning, and transcriptome-wide biological safety validation.
+HelixZero-CMS is a production-grade, state-of-the-art computational engine and API designed to optimize Small Interfering RNA (siRNA) therapeutics. Unlike traditional models that only evaluate raw sequences, **its primary novelty lies in predicting the true clinical efficacy of *chemically modified* siRNAs** (via Model B). It provides end-to-end Machine Learning-driven prediction of both unmodified (naked) and heavily modified siRNA silencing efficacy, paired with exhaustive chemical modification scanning and transcriptome-wide biological safety validation.
 
 Designed for clinical development teams and RNAi scientists, this framework drastically reduces the search space for potent, safe, and stable siRNA drugs.
 
