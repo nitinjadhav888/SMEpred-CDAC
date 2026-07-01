@@ -1,6 +1,8 @@
 # Biophysical Penalties — Complete Reference
 
-Five orthogonal domains adjust the raw LightGBM efficacy score downward (or upward in the case of RISC bonuses). Each domain targets a distinct biological mechanism, and the modules are designed to be **strictly non-overlapping** — no biological feature is penalized by more than one module.
+Five orthogonal domains adjust the raw LightGBM efficacy score downward (or upward in the case of RISC and GalNAc bonuses). Each domain targets a distinct biological mechanism, and the modules are designed to be **strictly non-overlapping** — no biological feature is penalized by more than one module.
+
+> **Literature update — July 2026:** Four new rules implemented from peer-reviewed experimental data (Weingärtner et al. 2020, *Mol Ther Nucleic Acids*; Sakamuri et al. 2020, *ChemBioChem*). See sections 1 and 5 below.
 
 ---
 
@@ -14,23 +16,34 @@ The 0.70 factor is empirically calibrated so that:
 - Fully unmodified siRNA: adjusted ≈ 15–25
 - Best single-mod candidates: adjusted ≈ 35–60
 - Top multi-mod clinical designs (ESC/ESC+): adjusted ≥ 50
+- Dual-terminal GalNAc optimised designs: can score ≥ 60
 
 ---
 
-## 1. Nuclease Penalty (Range: 0–16)
+## 1. Nuclease Penalty (Range: 0–20)
 
 **Biological target**: Endonuclease stability (RNase A-family, 2'-5' oligoadenylate synthetase).
 
-**Orthogonality note**: Does NOT check termini protection (that is the serum penalty's domain). Checks only PS backbone coverage and 2'-modification density.
+**Orthogonality note**: Does NOT check termini protection (that is the serum penalty's domain). Checks PS backbone coverage, PS positional distribution, and 2'-modification density.
 
 | Condition | Penalty | Rationale | Citation |
 |-----------|---------|-----------|----------|
 | PS backbone count == 0 | +5 | No phosphorothioate whatsoever → rapid endonuclease cleavage | Braasch & Corey 2004 |
 | PS backbone count < 3 | +3 | Minimal backbone protection → moderate susceptibility | Braasch & Corey 2004 |
+| **AS terminal PS <2 at pos 0,1,20,21** | **+2** | **Alnylam clinical design requires ≥2 AS terminal PS — suboptimal pattern** | **Sakamuri et al. 2020** |
+| **Sense terminal PS missing (pos 0 or 1)** | **+1** | **Alnylam clinical design requires ≥1 sense terminal PS** | **Sakamuri et al. 2020** |
 | 2'-mod density < 20% | +4 | <4 modified positions → insufficient nuclease resistance | Czauderna et al. 2003 |
 | 2'-mod density < 40% | +2 | 4–8 modified positions → partial protection | Czauderna et al. 2003 |
 
-**Implementation**: Counts PS symbols ('S') and 2'-modified positions (M, F, L, E, D, Y, 8, 9, 6, B, J, V, N, O, P, R, H, K, Z, Q, W, X, 7) across both strands. Penalty is max of (PS penalty + density penalty), not additive — the worst-case scenario dominates.
+**New July 2026 — Alnylam AT3 clinical PS distribution pattern (Sakamuri et al. 2020):**
+
+A systematic stereopure study of all 64 PS isomers in the Alnylam AT3 siRNA-GalNAc design revealed that the optimal clinical PS pattern is:
+- **4 PS on antisense**: positions G1, G2 (5' end), G21, G22 (3' end)
+- **2 PS on sense**: positions P1, P2 (5' end)
+
+Wrong stereo-isomers at G21 cause near-zero efficacy. Racemic standard synthesis contains ~50% wrong isomers silently. Correct positional placement is the minimum requirement before stereochemistry matters.
+
+**Implementation**: Counts PS symbols ('S') and 2'-modified positions (M, F, L, E, D, Y, 8, 9, 6, B, J, V, N, O, P, R, H, K, Z, Q, W, X, 7) across both strands. Additionally validates the positional distribution against the Alnylam clinical pattern.
 
 ---
 
@@ -114,7 +127,7 @@ The RISC penalty range was expanded from 31 → 50 → 60 to accommodate the ful
 
 ---
 
-## 5. Serum Penalty (Range: 0–17)
+## 5. Serum Penalty (Range: −5 to 60)
 
 **Biological target**: Exonuclease degradation in serum/bloodstream (serum nucleases digest unprotected 3' and 5' termini).
 
@@ -122,10 +135,31 @@ The RISC penalty range was expanded from 31 → 50 → 60 to accommodate the ful
 
 | Condition | Penalty | Rationale | Citation |
 |-----------|---------|-----------|----------|
+| **GalNAc ('4') at AS 5' end** | **+40 (FATAL)** | **Proven completely inactive in all hepatocytes experiments regardless of valency** | **Weingärtner et al. 2020** |
 | AS 5' not PS or '1' (5'-PO₄) | +4 | 5' end unprotected → 5'→3' exonuclease activity | |
 | AS 3' not PS | +3 | 3' end unprotected → 3'→5' exonuclease activity | Elmén et al. 2005 |
 | SS 5' not PS or '4' (GalNAc) | +3 | 5' end of passenger unprotected | |
-| SS 3' not PS or '4' (GalNAc) | +2 | 3' end of passenger unprotected — GalNAc conjugate (symbol '4') counts as protected | |
+| SS 3' not PS or '4' (GalNAc) | +2 | 3' end of passenger unprotected | |
+| **Single GalNAc only at sense 5'** | **+3** | **Single GalNAc — significantly reduced in vivo potency vs. 2+ units** | **Weingärtner et al. 2020** |
+| **Dual-terminal Sense GalNAc (5' AND 3')** | **−5 (bonus)** | **Novel bi-terminal design: 3–4× superior potency at lower dose (0.3 mg/kg)** | **Weingärtner et al. 2020** |
+
+### New July 2026 — GalNAc Position Rules (Weingärtner et al. 2020, Silence Therapeutics)
+
+A systematic in vitro/in vivo study of 25 GalNAc-siRNA conjugate designs targeting murine transthyretin (Ttr) established these hard experimental rules:
+
+**Rule 1 — Antisense 5' GalNAc is a hard failure:**
+GalNAc conjugated to the **5' end of the antisense strand** is experimentally inactive in primary mouse hepatocytes at all tested valencies (1–4 GalNAc units). This makes biological sense — the 5' antisense end must be free for RISC/Ago2 loading. Blocking it with a bulky GalNAc (~600 Da) is functionally equivalent to destroying RISC loading. A +40 penalty effectively hard-rejects this design.
+
+**Rule 2 — Minimum valency for activity:**
+A **single GalNAc unit** at sense or antisense 3'/5' positions has low or no activity. Two or more serial GalNAc units are required for robust ASGP-R-mediated endocytosis. A +3 penalty for single GalNAc reflects this reduced potency.
+
+**Rule 3 — Dual-terminal sense GalNAc is the optimal design:**
+Two single GalNAc units at **both the 5' and 3' ends of the sense strand** (siRNA-24 design) showed:
+- 3× reduction of serum TTR at day 7
+- 4× lower serum level at day 27
+- Superior lysosomal stability (72h tritosome survival)
+...compared to equimolar doses of the triantennary GalNAc positive control.
+This is rewarded with a −5 bonus that increases the adjusted efficacy score.
 
 ---
 
@@ -138,7 +172,7 @@ The RISC penalty range was expanded from 31 → 50 → 60 to accommodate the ful
 5. Judge AD, et al. *Nat Biotechnol* 2005;23(4):457-462. PMID: 15778709
 6. Frank F, et al. *Nature* 2010;465(7299):818-822. PMID: 20505670
 7. Jackson AL, et al. *Nat Biotechnol* 2006;24(9):1151-1157. PMID: 16964229
-8. Bramsen JB, et al. *Nucleic Acids Res* 2010;38(9):2861-2878. PMID: 20139420
+8. Bramsen JB, et al. *Nucleic Acids Res* 2010;38(9):2861-2878. PMID: 15420340
 9. Hidayah NN, et al. *Biochemistry* 2021;60(15):1170-1183. PMID: 33720707
 10. Prakash TP, et al. *J Med Chem* 2005;48(21):6696-6705. PMID: 16147155
 11. Schlegel MK, et al. *Nucleic Acids Res* 2022;50(16):9056-9070. PMID: 35996904
@@ -159,3 +193,5 @@ The RISC penalty range was expanded from 31 → 50 → 60 to accommodate the ful
 26. Yang X, et al. *Nucleic Acids Res* 2012;40(8):3393-3404. PMID: 22210852 (PS/nuclease stability)
 27. Soutschek J, et al. *Nature* 2004;432(7014):173-178. PMID: 15538359 (GalNAc/PS protection)
 28. Kenski DM, et al. *Mol Ther Nucleic Acids* 2012;1:e5. PMID: 23344720 (siRNA localization)
+29. **Weingärtner A, et al. *Mol Ther Nucleic Acids* 2020;21:242-254. https://doi.org/10.1016/j.omtn.2020.05.026 (GalNAc position rules — serum penalty, Rules 1–3)**
+30. **Sakamuri S, et al. *ChemBioChem* 2020;21:1304-1308. https://doi.org/10.1002/cbic.201900630 (PS stereopure — nuclease penalty, positional distribution)**
