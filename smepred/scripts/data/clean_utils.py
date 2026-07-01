@@ -33,7 +33,7 @@ import pandas as pd
 
 # ─── load alphabet + alias rules once ─────────────────────────────────────────
 
-_MOD_FILE = Path(__file__).parent.parent / "modification_codes.json"
+_MOD_FILE = Path(__file__).parent.parent.parent / "data" / "modification_codes.json"
 with _MOD_FILE.open(encoding="utf-8") as _f:
     _MOD_DATA = json.load(_f)
 

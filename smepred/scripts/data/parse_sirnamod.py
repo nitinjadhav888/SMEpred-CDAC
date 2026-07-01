@@ -27,7 +27,7 @@ from pathlib import Path
 import pandas as pd
 
 
-from data.collect.clean_utils import clean_sequence, parse_efficacy, valid_length, CANONICAL
+from scripts.data.clean_utils import clean_sequence, parse_efficacy, valid_length, CANONICAL
 
 SIRNAMOD = Path(r"C:\Helixx\Data-(1)-csv.csv.xls")
 DATA_DIR = Path(__file__).parent.parent

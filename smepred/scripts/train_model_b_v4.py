@@ -1,7 +1,7 @@
 """
 Train Model B v4 — Expanded feature space + all data.
 Now uses extract_positional_features_batch for ALL rows (not CSV pre-computed).
-_MOD_CHAR_MAP expanded: F, M, L, S, D + E(MOE) + 2,3,4,6,8,Q,U,X (HelixZero codes).
+_MODIFICATION_MAP expanded: F, M, L, S, D + E(MOE) + 2,3,4,6,8,Q,U,X (HelixZero codes).
 """
 
 import pandas as pd, numpy as np, lightgbm as lgb, json, joblib, warnings, sys
@@ -12,17 +12,17 @@ from scipy.stats import pearsonr, spearmanr
 warnings.filterwarnings('ignore')
 
 
-from src.features import extract_positional_features_batch, _MOD_CHAR_MAP, _MOD_TYPES
+from src.features import extract_positional_features_batch, _MODIFICATION_MAP, _MOD_CATEGORIES
 
 MODELS_DIR = Path(__file__).parent
 SRCDIR = Path(__file__).parent.parent
 
 print("Model B v4 — Expanded feature extractor")
-print("  _MOD_CHAR_MAP:", dict(_MOD_CHAR_MAP))
-print("  _MOD_TYPES:", _MOD_TYPES)
-n_flags = len(_MOD_CHAR_MAP) + 2  # + canonical, modified
+print("  _MODIFICATION_MAP:", dict(_MODIFICATION_MAP))
+print("  _MOD_CATEGORIES:", _MOD_CATEGORIES)
+n_flags = len(_MODIFICATION_MAP) + 2
 n_pos = n_flags * 21 * 2
-n_global = (len(_MOD_TYPES) + 9) * 2
+n_global = (len(_MOD_CATEGORIES) + 9) * 2
 n_total = n_pos + n_global + 1
 print(f"  Features per position: {n_flags}  Total dim: {n_total}")
 print()
@@ -189,8 +189,8 @@ joblib.dump(model, MODELS_DIR / 'model_b.pkl')
 meta = {
     'version': 4,
     'date': pd.Timestamp.now().isoformat(),
-    'mod_char_map': dict(_MOD_CHAR_MAP),
-    'mod_types': _MOD_TYPES,
+    'mod_char_map': dict(_MODIFICATION_MAP),
+    'mod_types': _MOD_CATEGORIES,
     'n_features': X_train.shape[1],
     'n_flags_per_pos': n_flags,
     'training_rows': {'position_aware': len(X_pos), 'hetero_patent': len(X_hetero), 'cmsirnadb': len(X_cms), 'total': len(X_all)},

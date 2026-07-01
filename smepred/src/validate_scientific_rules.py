@@ -1,5 +1,5 @@
 import os
-from offtarget import get_offtarget_engine
+from src.offtarget import get_offtarget_engine
 
 def print_report(name, report):
     print(f"\n{'='*60}")

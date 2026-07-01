@@ -34,7 +34,7 @@ warnings.filterwarnings('ignore')
 # ── Setup paths ──────────────────────────────────────────────────────────────
 SRCDIR = Path(__file__).parent.parent
 
-from src.features import extract_positional_features_batch, _MOD_CHAR_MAP, _MOD_TYPES
+from src.features import extract_positional_features_batch, _MODIFICATION_MAP, _MOD_CATEGORIES
 
 
 # ── LightGBM hyperparams (same as original training) ─────────────────────────

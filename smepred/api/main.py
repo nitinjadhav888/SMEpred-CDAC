@@ -527,3 +527,10 @@ def get_supported_modifications():
     except Exception as e:
         logger.error(f"Failed to load modification taxonomy: {e}")
         raise HTTPException(status_code=500, detail="Modification taxonomy file missing or corrupted.")
+
+
+# ─── Entry Point ──────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=True)
