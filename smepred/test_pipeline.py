@@ -1,5 +1,5 @@
 """
-Full pipeline integration test for SMEpred.
+Full pipeline integration test for HelixZero-CMS.
 Tests: rank → single-mod → multi-mod endpoints with known siRNA sequences.
 Uses LNA paper benchmark sequences (Elmén et al. 2005, PMC546170).
 """
@@ -16,18 +16,24 @@ BENCHMARKS = [
         "name": "siRNA1 (Unmodified firefly luciferase — high activity baseline)",
         "sense":     "CGUACGCGGAAUACUUCGAUU",
         "antisense": "UCGAAGUAUUCCGCGUACGUU",
+        "sense_mods": "", "sense_positions": "",
+        "antisense_mods": "", "antisense_positions": "",
         "expect": "moderate-high score, large penalties for unmodified state"
     },
     {
         "name": "siLNA5 (LNA at 3' overhangs — should preserve activity, improved serum)",
-        "sense":     "CGUACGCGGAAUACUUCGALL",  # L = LNA at 3' overhangs
-        "antisense": "UCGAAGUAUUCCGCGUACGLL",
+        "sense":     "CGUACGCGGAAUACUUCGAUU",  
+        "antisense": "UCGAAGUAUUCCGCGUACGUU",
+        "sense_mods": "L,,L", "sense_positions": "20,,21",
+        "antisense_mods": "L,,L", "antisense_positions": "20,,21",
         "expect": "similar to siRNA1 but serum penalty reduced"
     },
     {
         "name": "siLNA8 (LNA at AS 5' pos — experimentally abolishes activity)",
         "sense":     "CGUACGCGGAAUACUUCGAUU",
-        "antisense": "LCGAAGUAUUCCGCGUACGUU",  # L at AS[0] = experimentally dead
+        "antisense": "UCGAAGUAUUCCGCGUACGUU",  
+        "sense_mods": "", "sense_positions": "",
+        "antisense_mods": "L", "antisense_positions": "1",
         "expect": "RISC penalty should skyrocket — validates LNA-AS-5' rule"
     },
 ]
@@ -84,10 +90,10 @@ def test_multi_mod():
     payload = {
         "sense":     "GCUGGAAGUGCUUUUGACGUU",
         "antisense": "CGUCAAAAGCACUUCCAGCUU",
-        "sense_mods": "F,M,F,M",
-        "sense_positions": "0,1,2,3",
-        "antisense_mods": "S,S,F,F",
-        "antisense_positions": "0,1,2,3",
+        "sense_mods": "F,,M",
+        "sense_positions": "1,3,,2,4",
+        "antisense_mods": "S,,F",
+        "antisense_positions": "1,2,,3,4",
         "model": "B",
     }
     r = requests.post(f"{BASE}/multi-mod", json=payload, timeout=30)
@@ -95,7 +101,7 @@ def test_multi_mod():
     assert r.status_code == 200
     result = data.get("result", {})
     score = result.get("efficacy_score", 0)
-    penalties = result.get("penalties", {})
+    penalties = result.get("biophysics", {})
     print(f"✓ Multi-mod endpoint: final score = {score:.1f}")
     print(f"  Penalties: { {k: v['total'] for k,v in penalties.items()} }")
 
@@ -106,10 +112,10 @@ def test_biophysics_benchmarks():
         payload = {
             "sense":     bm["sense"],
             "antisense": bm["antisense"],
-            "sense_mods": "",
-            "sense_positions": "",
-            "antisense_mods": "",
-            "antisense_positions": "",
+            "sense_mods": bm["sense_mods"],
+            "sense_positions": bm["sense_positions"],
+            "antisense_mods": bm["antisense_mods"],
+            "antisense_positions": bm["antisense_positions"],
             "model": "B",
         }
         r = requests.post(f"{BASE}/multi-mod", json=payload, timeout=30)
@@ -118,7 +124,7 @@ def test_biophysics_benchmarks():
             continue
         result = r.json().get("result", {})
         score = result.get("efficacy_score", 0)
-        penalties = result.get("penalties", {})
+        penalties = result.get("biophysics", {})
         risc_pen = penalties.get("risc", {}).get("total", 0)
         serum_pen = penalties.get("serum", {}).get("total", 0)
         scores.append((bm["name"], score, risc_pen, serum_pen))
@@ -151,7 +157,7 @@ def test_modifications_endpoint():
 
 if __name__ == "__main__":
     print("\n" + "█"*60)
-    print("  SMEpred FULL PIPELINE INTEGRATION TEST")
+    print("  HelixZero-CMS FULL PIPELINE INTEGRATION TEST")
     print("  Based on: Elmén et al. 2005 (LNA) + Weingärtner 2020 (GalNAc)")
     print("█"*60)
     
