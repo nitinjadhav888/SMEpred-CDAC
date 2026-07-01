@@ -59,7 +59,7 @@ def main():
     parts = []
     if NORMAL_CSV.exists():
         df = pd.read_csv(NORMAL_CSV)
-        df["source"] = "smepred_existing"
+        df["source"] = "helixzero_cms_existing"
         parts.append(df[["sense", "antisense", "efficacy", "source"]])
         print(f"  existing normal_siRNA.csv : {len(df)} rows")
 

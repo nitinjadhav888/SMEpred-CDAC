@@ -434,7 +434,7 @@
     <circle cx="16" cy="18" r="2" fill="#a78bfa"/>
   </svg>
   <div>
-    <h1>SMEpred</h1>
+    <h1>HelixZero-CMS</h1>
     <p>siRNA efficacy prediction &amp; chemical modification workbench</p>
   </div>
   <span class="badge" id="api-badge">API Online</span>
@@ -1080,7 +1080,8 @@ function renderMultiModResult(data) {
   if (p) {
     const labels = {'nuclease':'Nuc','immuno':'Imm','risc':'RISC','thermo':'Therm','serum':'Serum'};
     const items = Object.entries(labels).map(([k, lab]) => {
-      const val = p[k] ?? 0;
+      const valObj = p[k];
+      const val = (valObj && valObj.total !== undefined) ? valObj.total : (valObj ?? 0);
       const color = val < 4 ? '#34d399' : val < 8 ? '#fbbf24' : '#f87171';
       return `<span style="display:inline-flex;align-items:center;gap:3px;margin:2px 6px 2px 0;font-size:0.72rem;color:var(--muted);background:var(--surface);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">
         ${lab}<span style="color:${color};font-weight:600">-${val.toFixed(1)}</span>
@@ -1170,16 +1171,17 @@ function scoreBreakdownPopup(r) {
   const totalPen = r.total_penalty || Object.values(p).reduce((a,b) => a+b, 0);
 
     const penaltyRows = [
-      { key: 'nuclease', label: 'Nuclease Shielding', color: p.nuclease < 4 ? '#34d399' : p.nuclease < 8 ? '#fbbf24' : '#f87171' },
+      { key: 'nuclease', label: 'Nuclease Shielding', color: (p.nuclease && p.nuclease.total || 0) < 4 ? '#34d399' : (p.nuclease && p.nuclease.total || 0) < 8 ? '#fbbf24' : '#f87171' },
       { key: 'immuno', label: 'Innate Immunogenicity (TLR7/8)', color: p.immuno < 4 ? '#34d399' : p.immuno < 8 ? '#fbbf24' : '#f87171' },
-      { key: 'risc', label: 'RISC Loading Constraints', color: p.risc < 4 ? '#34d399' : p.risc < 8 ? '#fbbf24' : '#f87171' },
-      { key: 'thermo', label: 'Thermodynamic / Structural', color: p.thermo < 4 ? '#34d399' : p.thermo < 8 ? '#fbbf24' : '#f87171' },
+      { key: 'risc', label: 'RISC Loading Constraints', color: (p.risc && p.risc.total || 0) < 4 ? '#34d399' : (p.risc && p.risc.total || 0) < 8 ? '#fbbf24' : '#f87171' },
+      { key: 'thermo', label: 'Thermodynamic / Structural', color: (p.thermo && p.thermo.total || 0) < 4 ? '#34d399' : (p.thermo && p.thermo.total || 0) < 8 ? '#fbbf24' : '#f87171' },
       { key: 'serum', label: 'Serum Exonuclease', color: p.serum < 4 ? '#34d399' : p.serum < 8 ? '#fbbf24' : '#f87171' },
-      { key: 'offtarget', label: 'Off-Target Safety (Human)', color: p.offtarget < 1 ? '#34d399' : p.offtarget < 15 ? '#fbbf24' : '#f87171' },
+      { key: 'offtarget', label: 'Off-Target Safety (Human)', color: (p.offtarget && p.offtarget.total || 0) < 1 ? '#34d399' : (p.offtarget && p.offtarget.total || 0) < 15 ? '#fbbf24' : '#f87171' },
     ];
 
   const pRows = penaltyRows.map(pr => {
-    const val = p[pr.key] || 0;
+    const valObj = p[pr.key];
+    const val = (valObj && valObj.total !== undefined) ? valObj.total : (valObj || 0);
     return `<div class="penalty-row">
       <span class="penalty-name">${pr.label}</span>
       <span class="penalty-val" style="color:${pr.color}">-${val.toFixed(1)}</span>
@@ -1269,12 +1271,24 @@ function buildExpandedDetail(sense, antisense, penalties, modSymbol, parentSense
   // Penalty legend
   const p = penalties || {};
   const legendItems = [];
-  if (p.nuclease > 0) legendItems.push(`<span>🧬 Nuclease: -${p.nuclease.toFixed(1)}</span>`);
-  if (p.immuno > 0) legendItems.push(`<span>🛡️ Immuno: -${p.immuno.toFixed(1)}</span>`);
-  if (p.risc > 0) legendItems.push(`<span>🎯 RISC: -${p.risc.toFixed(1)}</span>`);
-  if (p.thermo > 0) legendItems.push(`<span>🌡️ Thermo: -${p.thermo.toFixed(1)}</span>`);
-  if (p.serum > 0) legendItems.push(`<span>💉 Serum: -${p.serum.toFixed(1)}</span>`);
-  if (p.offtarget > 0) legendItems.push(`<span>⚠️ Off-Target: -${p.offtarget.toFixed(1)}</span>`);
+  const makeBadge = (key, icon, label) => {
+    if (p[key] && p[key].total > 0) {
+      const storeKey = 'pen_' + Math.random().toString(36).slice(2);
+      window._penaltyData[storeKey] = p[key];
+      return `<span style="cursor:pointer; text-decoration:underline dashed; text-underline-offset:3px; padding:3px 8px; border-radius:6px; font-size:0.82rem; font-weight:600; border:1px solid rgba(239,68,68,0.3); background:rgba(239,68,68,0.07); color:#f87171; transition:all 0.15s; display:inline-block; margin:2px 4px;"
+               onmouseover="this.style.background='rgba(239,68,68,0.18)'; this.style.borderColor='rgba(239,68,68,0.6)'; this.style.transform='translateY(-1px)'"
+               onmouseout="this.style.background='rgba(239,68,68,0.07)'; this.style.borderColor='rgba(239,68,68,0.3)'; this.style.transform=''"
+               onclick="event.stopPropagation(); showPenaltyDetails('${storeKey}', '${icon} ${label}', '${icon}')">${icon} ${label}: −${p[key].total.toFixed(1)}</span>`;
+    }
+    return '';
+  };
+  
+  legendItems.push(makeBadge('nuclease', '🧬', 'Nuclease'));
+  legendItems.push(makeBadge('immuno', '🛡️', 'Immuno'));
+  legendItems.push(makeBadge('risc', '🎯', 'RISC'));
+  legendItems.push(makeBadge('thermo', '🌡️', 'Thermo'));
+  legendItems.push(makeBadge('serum', '💉', 'Serum'));
+  legendItems.push(makeBadge('offtarget', '⚠️', 'Off-Target'));
 
   return `<div class="seq-view">
     <div class="seq-row">
@@ -1485,7 +1499,137 @@ async function loadMods() {
     badge.style.setProperty('--dot-color', '#f87171');
     badge.innerHTML = badge.innerHTML.replace('style="', 'style="background:#f87171;');
   }
+
+
+  // ── Penalty Breakdown Modal ──────────────────────────────────────────────
+  window._penaltyData = {};
+
+  window.closePenaltyModal = function() {
+    const m = document.getElementById('penaltyModal');
+    m.style.opacity = '0';
+    m.style.transition = 'opacity 0.15s';
+    setTimeout(() => { m.style.display = 'none'; m.style.opacity = ''; m.style.transition = ''; }, 150);
+  };
+
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePenaltyModal(); });
+
+  window.showPenaltyDetails = function(penKey, title, icon) {
+    const data = window._penaltyData[penKey];
+    if (!data) return;
+    document.getElementById('penaltyModalTitle').innerText = title + ' Breakdown';
+    document.getElementById('penaltyModalIcon').innerText = icon;
+
+    const details = (data && data.details) ? data.details : {};
+    const total   = (data && data.total !== undefined) ? data.total : (typeof data === 'number' ? data : 0);
+
+    let html = '';
+    const entries = Object.entries(details);
+
+    if (entries.length === 0) {
+      html = `<div style="text-align:center; padding:32px 0; color:#6b7280;">
+        <div style="font-size:2rem; margin-bottom:12px;">✓</div>
+        <div style="font-size:0.9rem;">No specific violations detected.</div>
+      </div>`;
+    } else {
+      // Summary bar
+      const maxVal = Math.max(...entries.map(([,v]) => typeof v === 'number' ? v : 0), 0.1);
+      html += `<div style="margin-bottom:20px; padding:14px 16px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.2); border-radius:10px;">
+        <div style="font-size:0.72rem; color:#9ca3af; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">Total Penalty Score</div>
+        <div style="font-size:2rem; font-weight:800; color:#ef4444; line-height:1;">−${typeof total === 'number' ? total.toFixed(1) : total}</div>
+        <div style="font-size:0.7rem; color:#6b7280; margin-top:4px;">Applied to raw LightGBM score before final adjustment</div>
+      </div>`;
+
+      html += '<div style="display:flex; flex-direction:column; gap:10px;">';
+      for (const [key, val] of entries) {
+        const numVal = typeof val === 'number' ? val : 0;
+        const isNeg  = numVal < 0;
+        const pct    = Math.abs(numVal) / maxVal * 100;
+        const color  = isNeg ? '#34d399' : '#ef4444';
+        const bgBar  = isNeg ? 'rgba(52,211,153,0.2)' : 'rgba(239,68,68,0.2)';
+        const displayVal = typeof val === 'number' ? Math.abs(val).toFixed(1) : val;
+
+        html += `<div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+            <span style="color:#d1d5db; font-size:0.82rem; font-weight:500; flex:1; padding-right:12px;">${key}</span>
+            <span style="color:${color}; font-weight:700; font-size:0.95rem; white-space:nowrap;">${isNeg ? '+' : '−'}${displayVal}</span>
+          </div>
+          <div style="height:5px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden;">
+            <div style="height:100%; width:${pct}%; background:${color}; border-radius:3px; opacity:0.7; transition:width 0.4s;"></div>
+          </div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+
+    document.getElementById('penaltyModalBody').innerHTML = html;
+    const modal = document.getElementById('penaltyModal');
+    modal.style.display = 'flex';
+    modal.style.opacity  = '';
+    modal.style.transition = '';
+  };
+
+
 })();
 </script>
+
+  <!-- Penalty Details Modal -->
+  <div id="penaltyModal" onclick="if(event.target===this)closePenaltyModal()" style="
+    display:none; position:fixed; inset:0; z-index:9999;
+    background:rgba(0,0,0,0.65); backdrop-filter:blur(4px);
+    align-items:center; justify-content:center;
+    animation: fadeInBg 0.2s ease;">
+    <div style="
+      background: linear-gradient(135deg, #1a1f2e 0%, #0f1419 100%);
+      border: 1px solid rgba(99,102,241,0.35);
+      border-radius: 16px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.05);
+      width: 520px; max-width: 95vw; max-height: 85vh;
+      overflow: hidden; display: flex; flex-direction: column;
+      animation: slideUp 0.25s cubic-bezier(0.34,1.56,0.64,1);">
+
+      <!-- Header -->
+      <div style="
+        display:flex; align-items:center; justify-content:space-between;
+        padding: 20px 24px 16px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        background: rgba(99,102,241,0.08);">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="
+            width:36px; height:36px; border-radius:10px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            display:flex; align-items:center; justify-content:center;
+            font-size:1.1rem;" id="penaltyModalIcon">⚗️</div>
+          <div>
+            <div id="penaltyModalTitle" style="font-size:1.1rem; font-weight:700; color:#fff; letter-spacing:-0.01em;"></div>
+            <div style="font-size:0.72rem; color:#6366f1; font-weight:500; margin-top:2px;">Biophysical Constraint Analysis</div>
+          </div>
+        </div>
+        <button onclick="closePenaltyModal()" style="
+          width:32px; height:32px; border-radius:8px; border:1px solid rgba(255,255,255,0.12);
+          background:rgba(255,255,255,0.05); color:#9ca3af; font-size:1.2rem;
+          cursor:pointer; display:flex; align-items:center; justify-content:center;
+          transition: all 0.15s;"
+          onmouseover="this.style.background='rgba(239,68,68,0.2)'; this.style.color='#ef4444'; this.style.borderColor='rgba(239,68,68,0.4)'"
+          onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.color='#9ca3af'; this.style.borderColor='rgba(255,255,255,0.12)'">
+          &times;
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div id="penaltyModalBody" style="
+        overflow-y:auto; padding:20px 24px 24px;
+        font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size:0.88rem;"></div>
+    </div>
+  </div>
+
+  <style>
+  @keyframes fadeInBg { from { opacity:0 } to { opacity:1 } }
+  @keyframes slideUp  { from { opacity:0; transform: translateY(24px) scale(0.96) } to { opacity:1; transform: translateY(0) scale(1) } }
+  #penaltyModal::-webkit-scrollbar { width:0 }
+  #penaltyModalBody::-webkit-scrollbar { width:5px }
+  #penaltyModalBody::-webkit-scrollbar-track { background: rgba(255,255,255,0.03) }
+  #penaltyModalBody::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.4); border-radius:3px }
+  </style>
+
 </body>
 </html>

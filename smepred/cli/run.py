@@ -1,5 +1,5 @@
 """
-cli/run.py — Command-line interface for SMEpred.
+cli/run.py — Command-line interface for HelixZero-CMS.
 
 Three sub-commands:
   rank        : rank siRNA candidates by modification potential (default)

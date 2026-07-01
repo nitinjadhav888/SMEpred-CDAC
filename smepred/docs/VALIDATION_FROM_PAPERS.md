@@ -1,4 +1,4 @@
-# SMEpred — Scientific Validation Dossier
+# HelixZero-CMS — Scientific Validation Dossier
 ## From All Papers in Library + PMC546170 (Elmén 2005)
 
 ---
@@ -9,7 +9,7 @@
 
 ### 📄 Paper: Elmén et al. 2005 — *Locked Nucleic Acid (LNA) mediated improvements in siRNA stability and functionality* (PMC546170)
 
-**Key experimental findings applicable to SMEpred:**
+**Key experimental findings applicable to HelixZero-CMS:**
 
 | Finding | Your Model | Validation Test |
 |---|---|---|
@@ -67,7 +67,7 @@ Rationale: Elmén 2005 showed systematic activity loss at these exact positions
 - Shows correlation between thermodynamic features and efficacy
 
 **Validation opportunity:**
-- Both OligoFormer and SMEpred rank siRNA by predicted efficacy
+- Both OligoFormer and HelixZero-CMS rank siRNA by predicted efficacy
 - If top-10 outputs from both models show ≥60% overlap for the same input gene → **convergent validation**
 - Can document this comparison in your panel submission
 
@@ -97,7 +97,7 @@ Rationale: Elmén 2005 showed systematic activity loss at these exact positions
 | Homopolymer runs reduce efficacy | ✅ `_has_homopolymer` |
 
 **Validation test:**
-Run the 20+ siRNA sequences from the thermodynamics paper tables through SMEpred. If your ranking correlates with their experimental Tm/efficacy data → **quantitative validation**.
+Run the 20+ siRNA sequences from the thermodynamics paper tables through HelixZero-CMS. If your ranking correlates with their experimental Tm/efficacy data → **quantitative validation**.
 
 ---
 
@@ -126,29 +126,29 @@ Run the 20+ siRNA sequences from the thermodynamics paper tables through SMEpred
 
 ### Test 1: Thermodynamic Asymmetry Validation
 - Take 10 siRNAs with known experimental efficacy rankings
-- Run through SMEpred
+- Run through HelixZero-CMS
 - Show that model ranking matches experimental ranking (Spearman rank correlation)
 
 ### Test 2: LNA Position Safety Validation (Elmén 2005)
 Run these exact sequences through `/multi-mod`:
 
-| Sequence | Expected SMEpred RISC penalty | Paper experimental result |
+| Sequence | Expected HelixZero-CMS RISC penalty | Paper experimental result |
 |---|---|---|
 | siRNA1 (unmodified) | Moderate | Active |
 | siLNA5 (LNA at 3' only) | Lower serum, similar RISC | Active, better stability |
 | siLNA8 (LNA at AS 5') | HIGH RISC penalty | Experimentally abolished |
 
-If SMEpred agrees → model is validated against published experimental data.
+If HelixZero-CMS agrees → model is validated against published experimental data.
 
 ### Test 3: GalNAc Position Validation (Weingärtner 2020)
-| Design | SMEpred Score | Paper experimental result |
+| Design | HelixZero-CMS Score | Paper experimental result |
 |---|---|---|
 | GalNAc at AS 5' | Near-zero (penalized by 40) | Experimentally inactive |
 | GalNAc at SS 5' only (×1) | Moderate | Low activity |
 | GalNAc at SS 5' + 3' | Highest | 3-4× best potency |
 
 ### Test 4: PS Distribution Validation (Sakamuri 2020)
-| PS Pattern | SMEpred nuclease penalty | Clinical relevance |
+| PS Pattern | HelixZero-CMS nuclease penalty | Clinical relevance |
 |---|---|---|
 | 0 PS | Max penalty | Clinically failed |
 | 6 PS: Alnylam pattern (pos 0,1,20,21 AS + 0,1 SS) | Min penalty | FDA-approved design |
@@ -174,8 +174,8 @@ for i in CATALYTIC_CLEFT_POSITIONS:
 ### To Validate (Direct Test):
 The paper contains **42 exact siLNA sequences** with measured luciferase inhibition % at 13 nM. You can:
 1. Take siLNA1–siLNA42 sequences from Table 1 of the paper
-2. Run each through SMEpred
-3. Correlate SMEpred score with experimental inhibition %
+2. Run each through HelixZero-CMS
+3. Correlate HelixZero-CMS score with experimental inhibition %
 4. Report Pearson R coefficient
 
 If R > 0.5 → statistically significant → publishable validation claim.

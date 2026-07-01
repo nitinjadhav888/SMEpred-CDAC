@@ -187,7 +187,7 @@ This is rewarded with a −5 bonus that increases the adjusted efficacy score.
 20. Janas MM, et al. *Nucleic Acids Res* 2018;46(15):7679-7692. PMID: 29939332
 21. Foster DJ, et al. *Mol Ther* 2018;26(3):708-720. PMID: 29396262
 22. Schlegel MK, et al. *Nucleic Acids Res* 2022;50(16):9056-9070. (GNA position-split, ESC+ design)
-23. Dar SA, et al. *RNA Biol* 2016;13(8):700-712. PMID: 27348347 (SMEpred training data)
+23. Dar SA, et al. *RNA Biol* 2016;13(8):700-712. PMID: 27348347 (HelixZero-CMS training data)
 24. Allerson CR, et al. *J Med Chem* 2005;48(4):901-904. PMID: 15715460 (2'-OMe + PS synergy)
 25. Dowler T, et al. *Nucleic Acids Res* 2006;34(6):1669-1675. PMID: 16556911 (ENA thermodynamics)
 26. Yang X, et al. *Nucleic Acids Res* 2012;40(8):3393-3404. PMID: 22210852 (PS/nuclease stability)

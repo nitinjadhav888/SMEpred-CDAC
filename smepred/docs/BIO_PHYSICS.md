@@ -155,7 +155,7 @@ At approximately 5 modifications, the efficacy score frequently reaches 100. Thi
 
 ### References
 
-- Dar et al., *RNA Biology* 2016 — Original SMEpred workbench
+- Dar et al., *RNA Biology* 2016 — Original HelixZero-CMS workbench
 - HelixZero-CMS Paper (Section 3) — Model architecture and evaluation
 
 ---
@@ -716,7 +716,7 @@ Where:
 | 15 | siRNA therapeutic chemistry | Khvorova & Watts, *Nat Biotechnol* | Review | 2017 |
 | 16 | Seed toxicity | Janas et al., *Mol Cell* | High (4,097 seeds) | 2018 |
 | 17 | Seed rescue (2′-OMe) | Jackson et al., *RNA* | High | 2006 |
-| 18 | SMEpred workbench | Dar et al., *RNA Biology* | Original workbench | 2016 |
+| 18 | HelixZero-CMS workbench | Dar et al., *RNA Biology* | Original workbench | 2016 |
 | 19 | LNA properties | Kurreck et al., *Nucleic Acids Res* | Biophysical | 2002 |
 | 20 | PS modifications | Eckstein, *Antisense Nucleic Acid* | Review | 2014 |
 

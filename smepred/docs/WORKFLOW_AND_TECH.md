@@ -392,7 +392,7 @@ This asymmetry causes different raw scores for the same unmodified sequence (e.g
 
 | Source | Description | Rows | Use |
 |--------|-------------|------|-----|
-| SMEpred training set | 83,535 cm-siRNA variants from Dar et al. (RNA Biology, 2016) | 83,535 | Primary training |
+| HelixZero-CMS training set | 83,535 cm-siRNA variants from Dar et al. (RNA Biology, 2016) | 83,535 | Primary training |
 
 ### Training Configuration
 
@@ -857,7 +857,7 @@ function adjusted_score(raw, sense, antisense, parent_sense, parent_antisense):
 ## 15. File Structure Reference
 
 ```
-smepred/
+helixzero_cms/
 ├── app.html                     # Single-file web UI (all 4 tabs)
 ├── README.md                    # Quick-start guide
 ├── setup.py / pyproject.toml    # Package config

@@ -1,5 +1,5 @@
 # Refresh all figures by running the standalone figure generation scripts.
-# Run from the SMEPred project root (Helixx/smepred).
+# Run from the HelixZero-CMS project root (Helixx/helixzero_cms).
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $FigsDir = $PSScriptRoot

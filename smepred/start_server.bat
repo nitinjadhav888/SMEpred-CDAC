@@ -3,7 +3,7 @@ cd /d "%~dp0"
 echo Installing dependencies...
 python -m pip install -r requirements.txt --quiet
 echo.
-echo Starting SMEpred API on http://localhost:8000
+echo Starting HelixZero-CMS API on http://localhost:8000
 echo The browser will open automatically.
 echo Press Ctrl+C to stop.
 echo.

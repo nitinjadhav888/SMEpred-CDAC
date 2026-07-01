@@ -23,7 +23,7 @@
 | Source | Rows | Description | Origin |
 |--------|------|-------------|--------|
 | **Position-Aware Dataset** | 55,730 | Sequences with per-position chemical modification annotations in `pos*mod` format. Columns include sense/antisense sequences, modification strings, efficacy (inhibition %), gene, cell type, dose, timepoint. | HelixZero Biological Catalog 43k (patent-derived) + synthetic augmentation |
-| **Hetero_train (SMEpred)** | 23,187 | The original SMEpred training set. 2,728 curated cm-siRNA rows from siRNAmod database, augmented with position-aware annotation. Used for external validation in the original paper (Dar et al. 2016). | siRNAmod database, Dar et al. *RNA Biology* 2016 |
+| **Hetero_train (HelixZero-CMS)** | 23,187 | The original HelixZero-CMS training set. 2,728 curated cm-siRNA rows from siRNAmod database, augmented with position-aware annotation. Used for external validation in the original paper (Dar et al. 2016). | siRNAmod database, Dar et al. *RNA Biology* 2016 |
 | **CMsiRNAdb** | 4,618 | External independent dataset. 12,303 total rows, of which 4,618 passed our cleaning filters and symbol mapping. PCSK9, PNPLA3 gene targets from patent data. | CMsiRNAdb (multiple patents) |
 
 ### 1.2 Naked Model — Unmodified siRNA Data (4,060 rows)
@@ -348,9 +348,9 @@ Antisense strand (65 features):
 
 ## 7. Train/Validation Splitting
 
-### 7.1 Stratified Split (SMEpred Method)
+### 7.1 Stratified Split (HelixZero-CMS Method)
 
-The original SMEpred paper uses a position-based stratified split:
+The original HelixZero-CMS paper uses a position-based stratified split:
 
 ```
 1. Sort all rows by descending efficacy (inhibition %)
@@ -454,11 +454,11 @@ Performance range:
 ## 9. File Organization
 
 ```
-smepred/data/
+helixzero_cms/data/
 │
 ├── modification_codes.json      ★ 35 symbols (5 canonical + 30 mod) + alias rules
-├── hetero_train_2728.csv        SMEpred training (23,187 rows x 175 cols)
-├── hetero_val_303.csv           SMEpred validation (2,576 rows)
+├── hetero_train_2728.csv        HelixZero-CMS training (23,187 rows x 175 cols)
+├── hetero_val_303.csv           HelixZero-CMS validation (2,576 rows)
 ├── cmsirnadb_full.csv           CMsiRNAdb external data (4,618 rows)
 ├── normal_siRNA.csv             Naked model training (3,315 rows)
 ├── normal_siRNA_extended.csv    Naked model extended (745 rows)
@@ -477,7 +477,7 @@ smepred/data/
     ├── Mix.csv                  Mix source (naked model)
     └── Taka.csv                 Takayuki source (naked model)
 
-smepred/models/
+helixzero_cms/models/
 ├── model_b.pkl                  ★ Model B v4 (LightGBM)
 ├── model_b_meta.json            Model B training metadata
 ├── model_normal.pkl             Naked model

@@ -231,11 +231,27 @@ def calculate_risc_penalty(
         total_penalty += seed_mods * 2.0
         details[f"Bulky seed modifications ({seed_mods})"] = seed_mods * 2.0
 
-    # LNA ("L") in early seed creates a locked, stiff helix incompatible with Ago2
+    # ── Elmén 2005 (PMC546170): LNA at antisense 5' position abolishes activity ──
+    # Tested in siLNA8-11 (firefly), siLNA15 (Renilla), siLNA20 (NPY) — all dead
+    # Even 5'-phosphorylation did not rescue lost activity
+    # Separate from and additive with the 5'-phosphate check above
+    if antisense[0] == "L":
+        total_penalty += 8.0
+        details["LNA at AS 5' pos (abolishes activity, Elmén 2005)"] = 8.0
+
+    # LNA ("L") in early seed positions 2-4 creates rigid helix incompatible with Ago2
     for i in range(1, min(4, len(antisense))):
         if antisense[i] == "L":
             total_penalty += 5.0
             details[f"LNA in early seed (pos {i+1})"] = 5.0
+
+    # ── Elmén 2005 Fig 3: LNA at AS positions 10, 12, 14 disrupts catalytic cleft ──
+    # These positions flank the Ago2 cleavage site (between pos 10-11)
+    # Single LNA substitution at each causes clear activity loss across 3 target genes
+    for i in [9, 11, 13]:  # 0-indexed (paper's pos 10, 12, 14)
+        if i < len(antisense) and antisense[i] == "L":
+            total_penalty += 3.0
+            details[f"LNA at catalytic cleft (AS pos {i+1}, Elmén 2005)"] = 3.0
 
     # MOE ("E") is bulky and disrupts the central catalytic cleft (positions 3-12)
     # Positions 1-2 and 13+ are clinically validated in Inclisiran (FDA 2021)

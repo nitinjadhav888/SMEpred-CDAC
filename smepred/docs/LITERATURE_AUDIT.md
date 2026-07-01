@@ -5,7 +5,7 @@
 | Paper | Year | Method | Dataset | Metric | Key Contribution |
 |---|---|---|---|---|---|
 | **DSIR** (Vert et al., BioMed) | 2006 | LASSO linear regression | Huesken 2,431 (2,182 train) | PCC=0.67 | Sparse (84-d position) + spectral (trinucleotide motif) features |
-| **SMEpred** (Dar et al., RNA Biol) | 2016 | SVR + 152-d MNC | 2,728 curated cm-siRNA | PCC≈0.80 | First tool for **chemically modified** siRNA efficacy |
+| **HelixZero-CMS** (Dar et al., RNA Biol) | 2016 | SVR + 152-d MNC | 2,728 curated cm-siRNA | PCC≈0.80 | First tool for **chemically modified** siRNA efficacy |
 | **RN.Ai-Predict** (T.C., bioRxiv) | 2025 | Tokenized embedding + FFN | Compiled 3,025 (gene-grouped CV) | R²=0.300 (gene-grouped) | Systematic eval: simple > complex, learned embeddings > hand-crafted |
 | **si-Fi21** (Lück et al., Front Plant Sci) | 2019 | Thermodynamic rules + ViennaRNA | Barley HvMlo (wet-lab) | HE-mode best | Plant-focused; rules-based, not ML |
 | **HelixZero-CMS** (us, 2026) | 2026 | LightGBM + 152-d MNC | 25,763 cm + 4,060 naked | PCC 0.68 cm, 0.55 naked | Two-model pipeline (naked + cm), beam-search multi-mod |
@@ -79,9 +79,9 @@ Similarly, the naked model doesn't need gene-grouped CV. The Rank tab re-ranks f
 
 ---
 
-## 3. Validation Against SMEpred (Dar 2016)
+## 3. Validation Against HelixZero-CMS (Dar 2016)
 
-### What SMEpred does
+### What HelixZero-CMS does
 - **Single SVR model** for both naked and modified prediction
 - Same 152-d MNC features we use
 - PCC≈0.80 on 2,728 curated rows
@@ -89,20 +89,20 @@ Similarly, the naked model doesn't need gene-grouped CV. The Rank tab re-ranks f
 
 ### How we compare
 
-| Aspect | SMEpred | Ours | Verdict |
+| Aspect | HelixZero-CMS | Ours | Verdict |
 |---|---|---|---|
 | **Pipeline** | Naked → Modified (single model) | Naked → Modified (two models) | ✅ Both are correct; ours is cleaner |
 | **Features** | 152-d MNC | 152-d MNC + source one-hot | ✅ Largely identical |
 | **Naked accuracy** | Implicit (same SVR) | Explicit (separate model, PCC=0.55) | ✅ Ours is more transparent |
 | **Modified accuracy** | PCC≈0.80 curated | PCC=0.68 patent data | ⚠ Lower — but 10× more data, much noisier |
 | **Architecture** | SVR (RBF kernel) | LightGBM (gradient boosted trees) | ✅ Both non-linear, peer-reviewed |
-| **Multi-mod** | Single-mod only | Beam search (2+ mods) | ✅ Beyond SMEpred's scope |
+| **Multi-mod** | Single-mod only | Beam search (2+ mods) | ✅ Beyond HelixZero-CMS's scope |
 
-### Our improvement over SMEpred
+### Our improvement over HelixZero-CMS
 1. **Separate models** — cleaner signal, no risk of conflating sequence quality with mod effects
-2. **Multi-mod beam search** — SMEpred does single-mod only
+2. **Multi-mod beam search** — HelixZero-CMS does single-mod only
 3. **Isotonic calibration** — better score interpretability
-4. **Seed toxicity** — not in SMEpred
+4. **Seed toxicity** — not in HelixZero-CMS
 
 ---
 
@@ -112,8 +112,8 @@ Similarly, the naked model doesn't need gene-grouped CV. The Rank tab re-ranks f
 
 | Principle | Evidence from literature | Our status |
 |---|---|---|
-| Two-step pipeline (naked → modified) | ✅ SMEpred, DSIR, RN.Ai-Predict all do this | ✅ Matches |
-| 152-d MNC features | ✅ SMEpred proves this works | ✅ Same features |
+| Two-step pipeline (naked → modified) | ✅ HelixZero-CMS, DSIR, RN.Ai-Predict all do this | ✅ Matches |
+| 152-d MNC features | ✅ HelixZero-CMS proves this works | ✅ Same features |
 | Simple model > complex architecture | ✅ RN.Ai-Predict: FFN > GNN/CNN/LSTM/Transformer | ✅ LightGBM (simple) |
 | LightGBM > SVR | ✅ Both are peer-reviewed; LightGBM handles non-linearity, scales better | ✅ Defensible improvement |
 | No thermodynamic features needed | ✅ RN.Ai-Predict: "thermodynamic features add no value" | ✅ We don't use them |
@@ -129,7 +129,7 @@ Similarly, the naked model doesn't need gene-grouped CV. The Rank tab re-ranks f
 ### Recommended CDAC messaging
 
 **Honest statement:**
-> *"Our pipeline is architecturally consistent with SMEpred and DSIR — same feature space, same two-step workflow. We improved on SMEpred by: (1) separating naked and modified models for cleaner signal, (2) using LightGBM instead of SVR for better scalability, (3) adding multi-mod beam search beyond single-mod only. Our metrics (PCC 0.68 modified, 0.55 naked) are lower than the original SMEpred paper's 0.80 — but that paper used 2,728 hand-curated rows, while our dataset is 25,763 rows from real pharma patents with 10× the noise. Our numbers reflect production reality, not cherry-picked data."*
+> *"Our pipeline is architecturally consistent with HelixZero-CMS and DSIR — same feature space, same two-step workflow. We improved on HelixZero-CMS by: (1) separating naked and modified models for cleaner signal, (2) using LightGBM instead of SVR for better scalability, (3) adding multi-mod beam search beyond single-mod only. Our metrics (PCC 0.68 modified, 0.55 naked) are lower than the original HelixZero-CMS paper's 0.80 — but that paper used 2,728 hand-curated rows, while our dataset is 25,763 rows from real pharma patents with 10× the noise. Our numbers reflect production reality, not cherry-picked data."*
 
 **Limitation to disclose:**
 > *"The naked model's PCC=0.55 limits the Rank tab's ability to distinguish between similar siRNA sequences. This is because sequence-composition features alone (GC, MNC) explain only ~30% of variance in naked siRNA efficacy — the rest depends on mRNA target structure and other factors beyond our current features. For the Single-Mod and Multi-Mod tabs, where the cm model achieves PCC=0.68, the predictions are substantially more reliable."*

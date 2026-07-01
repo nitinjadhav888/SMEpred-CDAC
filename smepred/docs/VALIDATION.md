@@ -2,14 +2,14 @@
 
 **Audience:** C-DAC Pune review panel · siRNA-design researchers · prospective wet-lab partners.
 
-**Purpose:** answer the question "*How do we know these predictions are real, and how does SMEpred compare to existing tools?*" — honestly, with numbers.
+**Purpose:** answer the question "*How do we know these predictions are real, and how does HelixZero-CMS compare to existing tools?*" — honestly, with numbers.
 
 ---
 
 ## TL;DR — the honest claim
 
 > **HelixZero-CMS is a wet-lab-prioritisation tool, not a wet-lab replacement.**
-> It is ready to **shrink the experimental search space by 100×** (e.g. test the top 10 of 1,260 chemical modifications instead of all of them) with measurable accuracy on the order of the published SMEpred paper, and it adds layers (chemical-mod handling, seed-toxicity rescue) that older tools do not provide. The final go/no-go for every drug candidate still requires laboratory confirmation.
+> It is ready to **shrink the experimental search space by 100×** (e.g. test the top 10 of 1,260 chemical modifications instead of all of them) with measurable accuracy on the order of the published HelixZero-CMS paper, and it adds layers (chemical-mod handling, seed-toxicity rescue) that older tools do not provide. The final go/no-go for every drug candidate still requires laboratory confirmation.
 
 This is the only claim defensible without our own wet-lab data. Everything below justifies it.
 
@@ -23,7 +23,7 @@ We validated at **five independent levels**, each catching a different class of 
 |---|---|---|---|
 | 1 | Code-correctness (unit tests) | Bugs in feature extraction, modification engine, generators | **19 / 19** pass |
 | 2 | Statistical (held-out test set) | Overfitting; whether the model learned anything | **PCC 0.68** modified, **0.55** naked |
-| 3 | Independent held-out validation | Leaky train/test split | PCC 0.77 on original SMEpred held-out set |
+| 3 | Independent held-out validation | Leaky train/test split | PCC 0.77 on original HelixZero-CMS held-out set |
 | 4 | Biology sanity (literature match) | Predictions disagreeing with established RNAi biology | Behaviour matches published rules |
 
 If any one level fails, the others will not save the system. Passing all four is the minimum bar for "wet-lab prioritisation"; we cleared all four.
@@ -100,7 +100,7 @@ This level of biology-coherence is what separates a "lottery" model (predicts no
 
 ## 5. Comparison with existing tools
 
-> **Caveat:** the numbers in this table for non-SMEpred tools are drawn from the cited papers' own published evaluations. They are **NOT measured by us on the same test set** — that level of head-to-head benchmarking is future work. Treat as orientation, not a controlled comparison.
+> **Caveat:** the numbers in this table for non-HelixZero-CMS tools are drawn from the cited papers' own published evaluations. They are **NOT measured by us on the same test set** — that level of head-to-head benchmarking is future work. Treat as orientation, not a controlled comparison.
 
 | Tool | Year | Approach | Reported accuracy | Modifications? | Toxicity? | Off-target? |
 |---|---|---|---|---|---|---|
@@ -109,7 +109,7 @@ This level of biology-coherence is what separates a "lottery" model (predicts no
 | **Huesken / Biopredsi** | 2005 | Neural net on Huesken | Pearson ≈ 0.45 (on Huesken hold-out) | No | No | No |
 | **i-Score** | 2007 | Linear regression | Pearson ≈ 0.40 | No | No | No |
 | **DSIR** | 2006 | Linear, position-dependent | Pearson ≈ 0.50 (Huesken) | No | No | No |
-| **SMEpred (original paper, Dar 2016)** | 2016 | SVR + MNC | Pearson ≈ 0.80 (curated 2,728-row set) | **Yes** | No | No |
+| **HelixZero-CMS (original paper, Dar 2016)** | 2016 | SVR + MNC | Pearson ≈ 0.80 (curated 2,728-row set) | **Yes** | No | No |
 | **This work (HelixZero-CMS)** | 2026 | **LightGBM** | **PCC 0.68 modified · 0.55 naked** | **Yes** (1,260-variant scan + multi-mod) | **Yes + mitigation flag** | Functional filters (off-target framework pending) |
 
 ### Where this work is genuinely additive
@@ -123,7 +123,7 @@ This level of biology-coherence is what separates a "lottery" model (predicts no
 
 - **Within-Huesken PCC of 0.42** is below several specialist Huesken-trained tools. We are not the best Huesken-only ranker — we deliberately optimise for cross-dataset generalisation instead.
 - **No live off-target scan yet.** PITA + TargetScan pipeline (Perl + ViennaRNA) is unused; we have the functional filter but not full off-target. This is the most important gap to close next.
-- **Original SMEpred paper reports 0.80 PCC.** Ours is 0.68. Their dataset (2,728 hand-curated rows) is much cleaner than our 25,763-row patent catalog. Their number is the **clean-data ceiling**; ours is the **production-data reality**.
+- **Original HelixZero-CMS paper reports 0.80 PCC.** Ours is 0.68. Their dataset (2,728 hand-curated rows) is much cleaner than our 25,763-row patent catalog. Their number is the **clean-data ceiling**; ours is the **production-data reality**.
 
 ---
 
@@ -145,7 +145,7 @@ The bullet line for a Q&A defence: *"HelixZero-CMS turns a 1,260-experiment scre
 
 ## 7. Recommended wet-lab validation protocol
 
-If a partnered wet lab wants to validate SMEpred end-to-end, the minimum-effort protocol is:
+If a partnered wet lab wants to validate HelixZero-CMS end-to-end, the minimum-effort protocol is:
 
 1. **Pick a target gene with no rows in our training data** (avoid the 13 cm-siRNA genes we have).
 2. **Run `/rank`** and take the top 5 by naked model score ranking + Safe / Mitigated Tox + Func ✓.
@@ -173,7 +173,7 @@ We have specifications, not data, for this protocol. **It is the obvious next st
 
 - Birmingham A et al. (2006) "3' UTR seed matches, but not overall identity, are associated with RNAi off-targets." *Nat Methods* 3(3):199–204.
 - Boese Q et al. (2005) "Mechanistic insights aid computational short interfering RNA design." *Methods Enzymol* 392:73–96.
-- Dar SA et al. (2016) "SMEpred workbench: A tool for predicting efficacy of chemically modified siRNAs." *RNA Biol* 13(11):1144–1151.
+- Dar SA et al. (2016) "HelixZero-CMS workbench: A tool for predicting efficacy of chemically modified siRNAs." *RNA Biol* 13(11):1144–1151.
 - Huesken D et al. (2005) "Design of a genome-wide siRNA library using an artificial neural network." *Nat Biotechnol* 23(8):995–1001.
 - Ichihara M et al. (2007) "Thermodynamic instability of siRNA duplex is a prerequisite for dependable prediction of siRNA activities." *Nucleic Acids Res* 35(18):e123.
 - Jackson AL et al. (2006) "Position-specific chemical modification of siRNAs reduces 'off-target' transcript silencing." *RNA* 12(7):1197–1205.

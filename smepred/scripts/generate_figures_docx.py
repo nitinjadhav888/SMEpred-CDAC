@@ -476,7 +476,7 @@ def generate_docx():
         'adequately addresses.'
     )
     add_body(
-        'Existing tools address fragments of this problem. SMEpred (Dar et al., 2016) [11] pioneered ML-based '
+        'Existing tools address fragments of this problem. HelixZero-CMS (Dar et al., 2016) [11] pioneered ML-based '
         'cm-siRNA efficacy prediction using 2,728 training samples (PCC=0.80). Mandelli and Crippa (2025) [12] '
         'demonstrated position-specific nucleotide features as the strongest predictors (PCC=0.719 on 2,428 '
         'sequences). OligoFormer (Bai et al., 2024) [13] introduced transformer architectures with RNA-FM '
@@ -522,7 +522,7 @@ def generate_docx():
         'The training corpus of 83,535 rows was assembled from three independent sources. Source 1 — '
         'Position-Aware Dataset (55,730 rows, 66.7%): derived from the HelixZero Biological Catalog (43k '
         'patent-derived cm-siRNA sequences) augmented with synthetic variants. Source 2 — Hetero Patent '
-        '(23,187 rows, 27.8%): based on the original SMEpred training set of 2,728 curated cm-siRNAs from '
+        '(23,187 rows, 27.8%): based on the original HelixZero-CMS training set of 2,728 curated cm-siRNAs from '
         'siRNAmod database [30], re-processed through position-aware annotation. Source 3 — CMsiRNAdb '
         '(4,618 rows, 5.5%): external independent dataset [31] with overlap removal and quality filtering. '
         'The raw corpus of 83,918 rows was reduced to 83,535 after deduplication (383 exact duplicates removed, 0.46%).'
@@ -641,7 +641,7 @@ def generate_docx():
     table.style = 'Light Shading Accent 1'
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     comp_data = [
-        ('Feature', 'HelixZero-CMS', 'SMEpred', 'Mandelli', 'OligoFormer', 'TOXsiRNA', 'si-Fi'),
+        ('Feature', 'HelixZero-CMS', 'HelixZero-CMS', 'Mandelli', 'OligoFormer', 'TOXsiRNA', 'si-Fi'),
         ('Training data', '83,535', '2,728', '2,428', '21,475', '2,749', '—'),
         ('Algorithm', 'LightGBM', 'SVM', 'SVR', 'Transformer', 'SVM', 'Proprietary'),
         ('Feature dims', '1,467', '400+', '214', 'RNA-FM', '400+', '—'),

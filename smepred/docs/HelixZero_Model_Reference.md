@@ -31,7 +31,7 @@
 |----------|-------|
 | Model file | `models/model_b.pkl` |
 | Feature dimensions | **1,467** |
-| Training set | 83,535 rows (SMEpred, Dar et al. 2016) |
+| Training set | 83,535 rows (HelixZero-CMS, Dar et al. 2016) |
 | Algorithm | LightGBM gradient boosting |
 | Objective | `regression` |
 | Metric | `rmse` |

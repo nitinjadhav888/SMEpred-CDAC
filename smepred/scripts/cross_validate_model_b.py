@@ -13,7 +13,7 @@ Outputs:
   6. External validation on hetero_val_303 (holdout)
 
 Usage:
-  cd smepred
+  cd helixzero_cms
   python scripts/cross_validate_model_b.py
 """
 

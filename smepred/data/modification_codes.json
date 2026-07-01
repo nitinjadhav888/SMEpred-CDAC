@@ -1,5 +1,5 @@
 {
-  "_comment": "30 chemical modifications used in SMEpred. Each entry has a one-letter symbol, full name, binary_code (6-bit), and the part of the nucleotide it modifies.",
+  "_comment": "30 chemical modifications used in HelixZero-CMS. Each entry has a one-letter symbol, full name, binary_code (6-bit), and the part of the nucleotide it modifies.",
   "modifications": [
     { "symbol": "A", "name": "Adenosine (canonical)",        "binary": "000001", "type": "canonical" },
     { "symbol": "U", "name": "Uridine (canonical)",          "binary": "000010", "type": "canonical" },
