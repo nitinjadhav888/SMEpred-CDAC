@@ -1,0 +1,42 @@
+# Version control
+.git
+.gitattributes
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+
+# Local config & logs
+.claude/
+.opencode/
+Outputs/
+papers_text.json
+papers/*.docx
+papers/*.pdf
+docs/*.pdf
+docs/figures/*.png
+
+# Development & training scripts (not needed at runtime)
+scripts/
+tests/
+test_*.py
+extract_all_papers.py
+start_server.bat
+railpack.json
+*.md
+
+# Large training data (not needed for inference)
+data/raw/
+data/processed/
+# data/oligoformer/ is needed for seed toxicity (cell_viability.tsv)
+data/sirna_modified_position_aware_dataset_v2.csv
+data/*.pdf
+data/human_transcriptome.fasta
+
+# Paper sources
+Params/
+pitch/

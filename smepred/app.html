@@ -1075,7 +1075,7 @@ function renderMultiModResult(data) {
   const tox = modToxBadge(r.toxicity_score, r.toxicity_label ?? 'Unknown', r.toxicity_note ?? '');
 
   // Penalties shown as small red/orange badges (only if available)
-  const p = r.penalties;
+  const p = r.biophysics || r.penalties;
   let penaltyHtml = '';
   if (p) {
     const labels = {'nuclease':'Nuc','immuno':'Imm','risc':'RISC','thermo':'Therm','serum':'Serum'};
@@ -1163,11 +1163,11 @@ function confidenceBadge(symbol) {
   return '<span class="conf-badge conf-novel" title="Includes novel/experimental modifications with limited clinical data — treated as exploratory research candidates">Novel / Experimental Core</span>';
 }
 
-// ─── Score Breakdown Popup ────────────────────────────────────────────────
+// ─── Score Breakdown Popup ──────────────────────────────────────────────
 function scoreBreakdownPopup(r) {
   const raw = r.raw_efficacy_score || r.efficacy_score;
   const adj = r.efficacy_score;
-  const p = r.penalties || {};
+  const p = r.biophysics || r.penalties || {};
   const totalPen = r.total_penalty || Object.values(p).reduce((a,b) => a+b, 0);
 
     const penaltyRows = [
@@ -1344,11 +1344,8 @@ function renderAutoMultiModResults(data) {
   </div>`;
 
   const rows = displayResults.map((r, i) => {
-    const delta = r.delta_score;
-    const deltaStr = delta != null
-      ? `<span style="color:${delta >= 0 ? '#34d399' : '#f87171'}">${delta >= 0 ? '+' : ''}${delta.toFixed(2)}</span>`
-      : '—';
-    const p = r.penalties || {};
+    const deltaStr = (r.delta_score > 0 ? '+' : '') + (r.delta_score?.toFixed(2) || '0.00');
+    const p = r.biophysics || r.penalties || {};
     const totalPen = r.total_penalty || Object.values(p).reduce((a,b) => a+b, 0);
 
     // Score column with breakdown popup

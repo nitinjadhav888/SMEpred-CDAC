@@ -284,32 +284,35 @@ def multi_mod_scan(
         parent_score, sense, antisense, sense, antisense
     )
 
-    def _score_variants_batch(variants: List[CmSiRNA]) -> List[CmSiRNA]:
-        """Internal helper to batch-score an array of variants using Model B."""
+    def _score_variants_batch(variants: List[CmSiRNA], chunk_size: int = 200) -> List[CmSiRNA]:
+        """Internal helper to batch-score variants using Model B, in chunks to limit memory."""
         if not variants:
             return []
-            
-        s_list = [v.sense for v in variants]
-        a_list = [v.antisense for v in variants]
-        ps_list = [v.parent_sense for v in variants]
-        pa_list = [v.parent_antisense for v in variants]
 
-        feature_matrix = extract_positional_features_batch(s_list, a_list, ps_list, pa_list)
         model = _get_model("B")
-        raw_predictions = model.predict(feature_matrix)
-        normalized_scores = _normalize_scores(raw_predictions, mode="rescale")
-
         scored_variants = []
-        for variant, raw_score in zip(variants, normalized_scores):
-            adj_score, penalties, _ = calculate_adjusted_efficacy(
-                float(raw_score), variant.sense, variant.antisense,
-                variant.parent_sense, variant.parent_antisense
-            )
-            variant.efficacy_score = round(adj_score, 2)
-            variant.delta_score = round(adj_score - parent_adjusted_score, 2)
-            variant.penalties = penalties
-            scored_variants.append(variant)
-            
+
+        for i in range(0, len(variants), chunk_size):
+            chunk = variants[i:i + chunk_size]
+            s_list = [v.sense for v in chunk]
+            a_list = [v.antisense for v in chunk]
+            ps_list = [v.parent_sense for v in chunk]
+            pa_list = [v.parent_antisense for v in chunk]
+
+            feature_matrix = extract_positional_features_batch(s_list, a_list, ps_list, pa_list)
+            raw_predictions = model.predict(feature_matrix)
+            normalized_scores = _normalize_scores(raw_predictions, mode="rescale")
+
+            for variant, raw_score in zip(chunk, normalized_scores):
+                adj_score, penalties, _ = calculate_adjusted_efficacy(
+                    float(raw_score), variant.sense, variant.antisense,
+                    variant.parent_sense, variant.parent_antisense
+                )
+                variant.efficacy_score = round(adj_score, 2)
+                variant.delta_score = round(adj_score - parent_adjusted_score, 2)
+                variant.penalties = penalties
+                scored_variants.append(variant)
+
         return scored_variants
 
     # Initialize the beam with diverse, high-performing single modifications
@@ -358,7 +361,7 @@ def multi_mod_scan(
     current_beam.sort(key=lambda x: x.efficacy_score, reverse=True)
     all_evaluated_variants = list(current_beam)
 
-    pairing_pool = sorted(single_results, key=lambda r: r.efficacy_score, reverse=True)[:beam_width * 3]
+    pairing_pool = sorted(single_results, key=lambda r: r.efficacy_score, reverse=True)[:beam_width * 2]
     history_best_scores = [current_beam[0].efficacy_score if current_beam else 0.0]
 
     for iteration in range(2, max_mods + 1):

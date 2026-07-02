@@ -103,7 +103,7 @@ class MultiModScanRequest(BaseModel):
     antisense: str
     model: str = "B"
     max_mods: int = Field(2, ge=2, le=21)
-    beam_width: int = Field(20, ge=5, le=50)
+    beam_width: int = Field(15, ge=5, le=50)
     full_scan: bool = False
 
 class MultiModFromSingleRequest(BaseModel):
